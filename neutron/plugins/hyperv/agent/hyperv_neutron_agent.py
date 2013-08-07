@@ -33,6 +33,7 @@ from neutron import context
 from neutron.openstack.common import log as logging
 from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.hyperv.agent import utils
+from neutron.plugins.hyperv.agent import utilsfactory
 from neutron.plugins.hyperv.common import constants
 
 LOG = logging.getLogger(__name__)
@@ -63,12 +64,12 @@ class HyperVNeutronAgent(object):
     RPC_API_VERSION = '1.0'
 
     def __init__(self):
-        self._utils = utils.HyperVUtils()
+        self._utils = utilsfactory.get_vmutils()
         self._polling_interval = CONF.AGENT.polling_interval
         self._load_physical_network_mappings()
         self._network_vswitch_map = {}
-        self._setup_rpc()
-
+        #self._setup_rpc()
+        
     def _setup_rpc(self):
         self.agent_id = 'hyperv_%s' % platform.node()
         self.topic = topics.AGENT
@@ -182,6 +183,9 @@ class HyperVNeutronAgent(object):
                     physical_network,
                     segmentation_id):
         LOG.debug(_("Binding port %s"), port_id)
+
+        print net_uuid
+        print self._network_vswitch_map
 
         if net_uuid not in self._network_vswitch_map:
             self._provision_network(
@@ -312,6 +316,7 @@ class HyperVNeutronAgent(object):
                     sync = False
 
                 port_info = self._update_ports(ports)
+                print port_info
 
                 # notify plugin about port deltas
                 if port_info:
