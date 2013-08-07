@@ -37,24 +37,30 @@ LOG = logging.getLogger(__name__)
 class HyperVException(q_exc.NeutronException):
     message = _('HyperVException: %(msg)s')
 
+WMI_JOB_STATE_STARTED = 4096
 WMI_JOB_STATE_RUNNING = 4
 WMI_JOB_STATE_COMPLETED = 7
 
 
 class HyperVUtils(object):
+
+    _ETHERNET_SWITCH_PORT = 'Msvm_SwitchPort'
+
+    _wmi_namespace = '//./root/virtualization'
+
     def __init__(self):
         self._wmi_conn = None
 
     @property
     def _conn(self):
         if self._wmi_conn is None:
-            self._wmi_conn = wmi.WMI(moniker='//./root/virtualization')
+            self._wmi_conn = wmi.WMI(moniker=self._wmi_namespace)
         return self._wmi_conn
 
     def get_switch_ports(self, vswitch_name):
         vswitch = self._get_vswitch(vswitch_name)
         vswitch_ports = vswitch.associators(
-            wmi_result_class='Msvm_SwitchPort')
+            wmi_result_class=self._ETHERNET_SWITCH_PORT)
         return set(p.Name for p in vswitch_ports)
 
     def vnic_port_exists(self, port_id):
@@ -67,7 +73,8 @@ class HyperVUtils(object):
     def get_vnic_ids(self):
         return set(
             p.ElementName
-            for p in self._conn.Msvm_SyntheticEthernetPortSettingData())
+            for p in self._conn.Msvm_SyntheticEthernetPortSettingData()
+            if not p.ElementName is None)
 
     def _get_vnic_settings(self, vnic_name):
         vnic_settings = self._conn.Msvm_SyntheticEthernetPortSettingData(
@@ -108,7 +115,7 @@ class HyperVUtils(object):
         """Poll WMI job state for completion."""
         if not ret_val:
             return
-        elif ret_val != WMI_JOB_STATE_RUNNING:
+        elif ret_val not in [WMI_JOB_STATE_STARTED, WMI_JOB_STATE_RUNNING]:
             raise HyperVException(msg=_('Job failed with error %d') % ret_val)
 
         job_wmi_path = jobpath.replace('\\', '/')
@@ -204,7 +211,7 @@ class HyperVUtils(object):
 
     def _get_vswitch_external_port(self, vswitch):
         vswitch_ports = vswitch.associators(
-            wmi_result_class='Msvm_SwitchPort')
+            wmi_result_class=self._ETHERNET_SWITCH_PORT)
         for vswitch_port in vswitch_ports:
             lan_endpoints = vswitch_port.associators(
                 wmi_result_class='Msvm_SwitchLanEndpoint')
@@ -232,7 +239,8 @@ class HyperVUtils(object):
 
     def get_port_by_id(self, port_id, vswitch_name):
         vswitch = self._get_vswitch(vswitch_name)
-        switch_ports = vswitch.associators(wmi_result_class='Msvm_SwitchPort')
+        switch_ports = vswitch.associators(
+            wmi_result_class=self._ETHERNET_SWITCH_PORT)
         for switch_port in switch_ports:
             if (switch_port.ElementName == port_id):
                 return switch_port
