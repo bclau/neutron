@@ -21,6 +21,7 @@ from oslo.config import cfg
 import webob.exc
 
 from neutron.common import constants
+from neutron.common import exceptions as ntn_exc
 import neutron.common.test_lib as test_lib
 from neutron import context
 from neutron.extensions import l3
@@ -29,6 +30,7 @@ from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as secgrp
 from neutron import manager
 from neutron.openstack.common import uuidutils
+from neutron.plugins.nicira.dbexts import nicira_db
 from neutron.plugins.nicira.dbexts import nicira_qos_db as qos_db
 from neutron.plugins.nicira.extensions import nvp_networkgw
 from neutron.plugins.nicira.extensions import nvp_qos as ext_qos
@@ -88,7 +90,7 @@ class NiciraPluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
         # Emulate tests against NVP 2.x
         instance.return_value.get_nvp_version.return_value = NVPVersion("2.9")
         instance.return_value.request.side_effect = _fake_request
-        super(NiciraPluginV2TestCase, self).setUp(PLUGIN_NAME)
+        super(NiciraPluginV2TestCase, self).setUp(plugin=PLUGIN_NAME)
         cfg.CONF.set_override('metadata_mode', None, 'NVP')
         self.addCleanup(self.fc.reset_all)
         self.addCleanup(self.mock_nvpapi.stop)
@@ -161,6 +163,34 @@ class TestNiciraPortsV2(test_plugin.TestPortsV2,
         with self.port(name=name) as port:
             # Assert the neutron name is not truncated
             self.assertEqual(name, port['port']['name'])
+
+    def _verify_no_orphan_left(self, net_id):
+        # Verify no port exists on net
+        # ie: cleanup on db was successful
+        query_params = "network_id=%s" % net_id
+        self._test_list_resources('port', [],
+                                  query_params=query_params)
+        # Also verify no orphan port was left on nvp
+        # no port should be there at all
+        self.assertFalse(self.fc._fake_lswitch_lport_dict)
+
+    def test_create_port_nvp_error_no_orphan_left(self):
+        with mock.patch.object(nvplib, 'create_lport',
+                               side_effect=NvpApiClient.NvpApiException):
+            with self.network() as net:
+                net_id = net['network']['id']
+                self._create_port(self.fmt, net_id,
+                                  webob.exc.HTTPInternalServerError.code)
+                self._verify_no_orphan_left(net_id)
+
+    def test_create_port_neutron_error_no_orphan_left(self):
+        with mock.patch.object(nicira_db, 'add_neutron_nvp_port_mapping',
+                               side_effect=ntn_exc.NeutronException):
+            with self.network() as net:
+                net_id = net['network']['id']
+                self._create_port(self.fmt, net_id,
+                                  webob.exc.HTTPInternalServerError.code)
+                self._verify_no_orphan_left(net_id)
 
 
 class TestNiciraNetworksV2(test_plugin.TestNetworksV2,
@@ -484,9 +514,9 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
         self.test_router_remove_interface_inuse_returns_409()
         self._nvp_metadata_teardown()
 
-    def test_router_remove_iface_wrong_sub_returns_409_with_metadata(self):
+    def test_router_remove_iface_wrong_sub_returns_400_with_metadata(self):
         self._nvp_metadata_setup()
-        self.test_router_remove_interface_wrong_subnet_returns_409()
+        self.test_router_remove_interface_wrong_subnet_returns_400()
         self._nvp_metadata_teardown()
 
     def test_router_delete_with_metadata_access(self):
@@ -559,14 +589,14 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                            device_owner='network:dhcp'):
                 subnets = self._list('subnets')['subnets']
                 self.assertEqual(len(subnets), 1)
-                self.assertEquals(subnets[0]['host_routes'][0]['nexthop'],
-                                  '10.0.0.2')
-                self.assertEquals(subnets[0]['host_routes'][0]['destination'],
-                                  '169.254.169.254/32')
+                self.assertEqual(subnets[0]['host_routes'][0]['nexthop'],
+                                 '10.0.0.2')
+                self.assertEqual(subnets[0]['host_routes'][0]['destination'],
+                                 '169.254.169.254/32')
 
             subnets = self._list('subnets')['subnets']
             # Test that route is deleted after dhcp port is removed
-            self.assertEquals(len(subnets[0]['host_routes']), 0)
+            self.assertEqual(len(subnets[0]['host_routes']), 0)
 
     def test_floatingip_disassociate(self):
         with self.port() as p:
@@ -831,8 +861,8 @@ class TestNiciraQoSQueue(NiciraPluginV2TestCase):
             self.assertEqual(queue['qos_queue']['max'], 20)
 
 
-class NiciraExtGwModeTestCase(test_ext_gw_mode.ExtGwModeTestCase,
-                              NiciraPluginV2TestCase):
+class NiciraExtGwModeTestCase(NiciraPluginV2TestCase,
+                              test_ext_gw_mode.ExtGwModeTestCase):
     pass
 
 
