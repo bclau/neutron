@@ -68,8 +68,8 @@ class HyperVNeutronAgent(object):
         self._polling_interval = CONF.AGENT.polling_interval
         self._load_physical_network_mappings()
         self._network_vswitch_map = {}
-        #self._setup_rpc()
-        
+        self._setup_rpc()
+
     def _setup_rpc(self):
         self.agent_id = 'hyperv_%s' % platform.node()
         self.topic = topics.AGENT
@@ -183,9 +183,6 @@ class HyperVNeutronAgent(object):
                     physical_network,
                     segmentation_id):
         LOG.debug(_("Binding port %s"), port_id)
-
-        print net_uuid
-        print self._network_vswitch_map
 
         if net_uuid not in self._network_vswitch_map:
             self._provision_network(
@@ -316,7 +313,6 @@ class HyperVNeutronAgent(object):
                     sync = False
 
                 port_info = self._update_ports(ports)
-                print port_info
 
                 # notify plugin about port deltas
                 if port_info:

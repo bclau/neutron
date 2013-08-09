@@ -831,8 +831,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                 ('delay', 30),
                 ('timeout', 10),
                 ('max_retries', 3),
-                ('admin_state_up', True),
-                ('status', 'PENDING_CREATE')]
+                ('admin_state_up', True)]
         with self.health_monitor() as monitor:
             for k, v in keys:
                 self.assertEqual(monitor['health_monitor'][k], v)
@@ -843,8 +842,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                 ('delay', 20),
                 ('timeout', 20),
                 ('max_retries', 2),
-                ('admin_state_up', False),
-                ('status', 'PENDING_UPDATE')]
+                ('admin_state_up', False)]
         with self.health_monitor() as monitor:
             data = {'health_monitor': {'delay': 20,
                                        'timeout': 20,
@@ -915,8 +913,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                     ('delay', 30),
                     ('timeout', 10),
                     ('max_retries', 3),
-                    ('admin_state_up', True),
-                    ('status', 'PENDING_CREATE')]
+                    ('admin_state_up', True)]
             req = self.new_show_request('health_monitors',
                                         monitor['health_monitor']['id'],
                                         fmt=self.fmt)
@@ -1196,6 +1193,23 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                                    health_mon2['health_monitor']['id']]},
                                  res)
 
+    def test_driver_call_create_pool_health_monitor(self):
+        with mock.patch.object(self.plugin.driver,
+                               'create_pool_health_monitor') as driver_call:
+            with contextlib.nested(
+                self.pool(),
+                self.health_monitor()
+            ) as (pool, hm):
+                data = {"health_monitor": {
+                        "id": hm['health_monitor']['id'],
+                        'tenant_id': self._tenant_id}}
+                self.plugin.create_pool_health_monitor(
+                    context.get_admin_context(),
+                    data, pool['pool']['id']
+                )
+                driver_call.assert_called_once_with(
+                    mock.ANY, hm['health_monitor'], pool['pool']['id'])
+
     def test_create_pool_healthmon_invalid_pool_id(self):
         with self.health_monitor() as healthmon:
             self.assertRaises(loadbalancer.PoolNotFound,
@@ -1224,6 +1238,35 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                                                 pool['pool']['id'])
             self.assertEqual(updated_pool['status'], 'ACTIVE')
             self.assertFalse(pool['pool']['status_description'])
+
+    def test_update_pool_health_monitor(self):
+        with self.pool() as pool:
+            with self.health_monitor() as hm:
+                res = self.plugin.create_pool_health_monitor(
+                    context.get_admin_context(),
+                    hm, pool['pool']['id'])
+                self.assertEqual({'health_monitor':
+                                  [hm['health_monitor']['id']]},
+                                 res)
+
+                assoc = self.plugin.get_pool_health_monitor(
+                    context.get_admin_context(),
+                    hm['health_monitor']['id'],
+                    pool['pool']['id'])
+                self.assertEqual(assoc['status'], 'PENDING_CREATE')
+                self.assertIsNone(assoc['status_description'])
+
+                self.plugin.update_pool_health_monitor(
+                    context.get_admin_context(),
+                    hm['health_monitor']['id'],
+                    pool['pool']['id'],
+                    'ACTIVE', 'ok')
+                assoc = self.plugin.get_pool_health_monitor(
+                    context.get_admin_context(),
+                    hm['health_monitor']['id'],
+                    pool['pool']['id'])
+                self.assertEqual(assoc['status'], 'ACTIVE')
+                self.assertEqual(assoc['status_description'], 'ok')
 
 
 class TestLoadBalancerXML(TestLoadBalancer):

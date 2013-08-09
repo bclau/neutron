@@ -1,13 +1,13 @@
 # Copyright (c) 2012 OpenStack Foundation.
 #
-# Licensed under the Apache License, Version 2.0 (the 'License');
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an 'AS IS' BASIS,
+# distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied.
 # See the License for the specific language governing permissions and
@@ -233,10 +233,10 @@ class TunnelAllocationsTest(base.BaseTestCase):
     def test_add_tunnel_endpoints(self):
         tun_1 = ovs_db_v2.add_tunnel_endpoint('192.168.0.1')
         tun_2 = ovs_db_v2.add_tunnel_endpoint('192.168.0.2')
-        self.assertEquals(1, tun_1.id)
-        self.assertEquals('192.168.0.1', tun_1.ip_address)
-        self.assertEquals(2, tun_2.id)
-        self.assertEquals('192.168.0.2', tun_2.ip_address)
+        self.assertEqual(1, tun_1.id)
+        self.assertEqual('192.168.0.1', tun_1.ip_address)
+        self.assertEqual(2, tun_2.id)
+        self.assertEqual('192.168.0.2', tun_2.ip_address)
 
     def test_specific_tunnel_inside_pool(self):
         tunnel_id = TUN_MIN + 5

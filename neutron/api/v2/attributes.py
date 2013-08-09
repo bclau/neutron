@@ -3,14 +3,14 @@
 # Copyright (c) 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
-#    Licensed under the Apache License, Version 2.0 (the 'License'); you may
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
 #
 #         http://www.apache.org/licenses/LICENSE-2.0
 #
 #    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an 'AS IS' BASIS, WITHOUT
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
@@ -261,6 +261,23 @@ def _validate_subnet(data, valid_values=None):
     return msg
 
 
+def _validate_subnet_list(data, valid_values=None):
+    if not isinstance(data, list):
+        msg = _("'%s' is not a list") % data
+        LOG.debug(msg)
+        return msg
+
+    if len(set(data)) != len(data):
+        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
+        LOG.debug(msg)
+        return msg
+
+    for item in data:
+        msg = _validate_subnet(item)
+        if msg:
+            return msg
+
+
 def _validate_regex(data, valid_values=None):
     try:
         if re.match(valid_values, data):
@@ -474,6 +491,7 @@ validators = {'type:dict': _validate_dict,
               'type:regex': _validate_regex,
               'type:string': _validate_string,
               'type:subnet': _validate_subnet,
+              'type:subnet_list': _validate_subnet_list,
               'type:uuid': _validate_uuid,
               'type:uuid_or_none': _validate_uuid_or_none,
               'type:uuid_list': _validate_uuid_list,
