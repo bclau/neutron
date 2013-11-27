@@ -30,6 +30,12 @@ from neutron.tests import base
 
 class TestHyperVNeutronAgent(base.BaseTestCase):
 
+    _FAKE_CUSTOMER_ADDR = 'fake_customer_address'
+    _FAKE_PREFIX_LENGTH = 24
+    _FAKE_SEG_ID = 9001
+    _FAKE_NETWORK_NAME = 'fake_network_name'
+    _FAKE_PORT_ID = 'fake_port_id'
+
     def setUp(self):
         super(TestHyperVNeutronAgent, self).setUp()
         self.addCleanup(cfg.CONF.reset)
@@ -55,6 +61,7 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
         self.agent.plugin_rpc = mock.Mock()
         self.agent.context = mock.Mock()
         self.agent.agent_id = mock.Mock()
+        self.agent._utils = mock.MagicMock()
 
         fake_agent_state = {
             'binary': 'neutron-hyperv-agent',

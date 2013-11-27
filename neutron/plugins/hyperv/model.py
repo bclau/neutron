@@ -15,9 +15,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 # @author: Alessandro Pilotti, Cloudbase Solutions Srl
+# @author: Claudiu Belu, Cloudbase Solutions Srl
 
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
 
+from neutron.db import models_v2
 from neutron.db.models_v2 import model_base
 
 
@@ -53,3 +55,14 @@ class NetworkBinding(model_base.BASEV2):
         self.network_type = network_type
         self.physical_network = physical_network
         self.segmentation_id = segmentation_id
+
+
+class LookupRecord(model_base.BASEV2, models_v2.HasId):
+    """Represents a LookupRecord used for Hyper-V NVGRE."""
+
+    __tablename__ = 'hyperv_lookup_records'
+
+    provider_addr = Column(String(64), nullable=False)
+    customer_addr = Column(String(64), nullable=False)
+    mac_address = Column(String(12), nullable=False)
+    vsid = Column(Integer, nullable=False)

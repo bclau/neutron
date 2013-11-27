@@ -40,6 +40,7 @@ class TestHyperVUtilsV2(base.BaseTestCase):
     _FAKE_VLAN_ID = "fake_vlan_id"
     _FAKE_CLASS_NAME = "fake_class_name"
     _FAKE_ELEMENT_NAME = "fake_element_name"
+    _FAKE_MAC_ADDRESS = 'fake_mac_address'
 
     def setUp(self):
         super(TestHyperVUtilsV2, self).setUp()
@@ -81,50 +82,55 @@ class TestHyperVUtilsV2(base.BaseTestCase):
 
     def test_add_virt_resource(self):
         mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
-        mock_svc.AddResourceSettings.return_value = (self._FAKE_JOB_PATH,
-                                                     mock.MagicMock(),
-                                                     self._FAKE_RET_VAL)
-        mock_res_setting_data = mock.MagicMock()
-        mock_res_setting_data.GetText_.return_value = self._FAKE_RES_DATA
+        mock_rsd = self._mock_vsms_method(mock_svc.AddResourceSettings, 3)
 
         mock_vm = mock.MagicMock()
         mock_vm.path_.return_value = self._FAKE_VM_PATH
-
-        self._utils._check_job_status = mock.MagicMock()
-
-        self._utils._add_virt_resource(mock_vm, mock_res_setting_data)
+        self._utils._add_virt_resource(mock_vm, mock_rsd)
 
         mock_svc.AddResourceSettings.assert_called_with(self._FAKE_VM_PATH,
                                                         [self._FAKE_RES_DATA])
 
     def test_modify_virt_resource(self):
         mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
-        mock_svc.ModifyResourceSettings.return_value = (self._FAKE_JOB_PATH,
-                                                        mock.MagicMock(),
-                                                        self._FAKE_RET_VAL)
-        mock_res_setting_data = mock.MagicMock()
-        mock_res_setting_data.GetText_.return_value = self._FAKE_RES_DATA
+        mock_rsd = self._mock_vsms_method(mock_svc.ModifyResourceSettings, 3)
 
-        self._utils._check_job_status = mock.MagicMock()
-
-        self._utils._modify_virt_resource(mock_res_setting_data)
-
+        self._utils._modify_virt_resource(mock_rsd)
         mock_svc.ModifyResourceSettings.assert_called_with(
             ResourceSettings=[self._FAKE_RES_DATA])
 
     def test_remove_virt_resource(self):
         mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
-        mock_svc.RemoveResourceSettings.return_value = (self._FAKE_JOB_PATH,
-                                                        self._FAKE_RET_VAL)
-        mock_res_setting_data = mock.MagicMock()
-        mock_res_setting_data.path_.return_value = self._FAKE_RES_PATH
+        mock_rsd = self._mock_vsms_method(mock_svc.RemoveResourceSettings, 2)
 
-        self._utils._check_job_status = mock.MagicMock()
-
-        self._utils._remove_virt_resource(mock_res_setting_data)
+        self._utils._remove_virt_resource(mock_rsd)
 
         mock_svc.RemoveResourceSettings.assert_called_with(
             ResourceSettings=[self._FAKE_RES_PATH])
+
+    def test_remove_virt_feature(self):
+        mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
+        mock_rsd = self._mock_vsms_method(mock_svc.RemoveFeatureSettings, 2)
+
+        self._utils._remove_virt_feature(mock_rsd)
+
+        mock_svc.RemoveFeatureSettings.assert_called_with(
+            FeatureSettings=[self._FAKE_RES_PATH])
+
+    def _mock_vsms_method(self, vsms_method, arg_count):
+        args = None
+        if arg_count == 3:
+            args = (self._FAKE_JOB_PATH, mock.MagicMock(), self._FAKE_RET_VAL)
+        else:
+            args = (self._FAKE_JOB_PATH, self._FAKE_RET_VAL)
+
+        vsms_method.return_value = args
+        mock_res_setting_data = mock.MagicMock()
+        mock_res_setting_data.GetText_.return_value = self._FAKE_RES_DATA
+        mock_res_setting_data.path_.return_value = self._FAKE_RES_PATH
+        self._utils._check_job_status = mock.MagicMock()
+
+        return mock_res_setting_data
 
     def test_disconnect_switch_port_delete_port(self):
         self._test_disconnect_switch_port(True)
@@ -179,27 +185,55 @@ class TestHyperVUtilsV2(base.BaseTestCase):
         self.assertEqual(mock_sw_port, vswitch_port)
 
     def test_set_vswitch_port_vlan_id(self):
+        self._test_set_vswitch_port_feature_setting(
+            self._utils.set_vswitch_port_vlan_id)
+
+    def test_set_vswitch_port_vsid(self):
+        self._test_set_vswitch_port_feature_setting(
+            self._utils.set_vswitch_port_vsid)
+
+    def _test_set_vswitch_port_feature_setting(self, tested_method):
         mock_port_alloc = mock.MagicMock()
         self._utils._get_switch_port_allocation = mock.MagicMock(return_value=(
             mock_port_alloc, True))
-        self._utils._get_vlan_setting_data_from_port_alloc = mock.MagicMock()
 
         mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
         mock_svc.RemoveFeatureSettings.return_value = (self._FAKE_JOB_PATH,
                                                        self._FAKE_RET_VAL)
-        mock_vlan_settings = mock.MagicMock()
-        self._utils._get_vlan_setting_data = mock.MagicMock(return_value=(
-            mock_vlan_settings, True))
 
-        mock_svc.AddFeatureSettings.return_value = (self._FAKE_JOB_PATH,
-                                                    None,
-                                                    self._FAKE_RET_VAL)
+        self._utils._get_default_setting_data = mock.MagicMock()
+        mock_svc.AddFeatureSettings.return_value = (
+            self._FAKE_JOB_PATH, None, self._FAKE_RET_VAL)
 
-        self._utils.set_vswitch_port_vlan_id(self._FAKE_VLAN_ID,
-                                             self._FAKE_PORT_NAME)
+        tested_method(self._FAKE_VLAN_ID, self._FAKE_PORT_NAME)
 
         self.assertTrue(mock_svc.RemoveFeatureSettings.called)
         self.assertTrue(mock_svc.AddFeatureSettings.called)
+
+    def test_get_switch_port_ok(self):
+        mock_port_alloc = mock.MagicMock()
+        self._utils._get_switch_port_allocation = mock.MagicMock(return_value=(
+            mock_port_alloc, True))
+
+        actual_port_alloc = self._utils._get_switch_port_or_exception(
+            self._FAKE_PORT_NAME)
+        self.assertTrue(mock_port_alloc, actual_port_alloc)
+
+    def test_get_switch_port_exception(self):
+        self._utils._get_switch_port_allocation = mock.MagicMock(return_value=(
+            None, False))
+
+        self.assertRaises(utils.HyperVException,
+                          self._utils._get_switch_port_or_exception,
+                          self._FAKE_PORT_NAME)
+
+    def test_get_mac_address(self):
+        mock_vnic = mock.MagicMock()
+        mock_vnic.Address = self._FAKE_MAC_ADDRESS
+        self._utils._get_vnic_settings = mock.MagicMock(return_value=mock_vnic)
+
+        actual_mac_address = self._utils.get_mac_address(self._FAKE_PORT_NAME)
+        self.assertEqual(self._FAKE_MAC_ADDRESS, actual_mac_address)
 
     def test_get_setting_data(self):
         self._utils._get_first_item = mock.MagicMock(return_value=None)

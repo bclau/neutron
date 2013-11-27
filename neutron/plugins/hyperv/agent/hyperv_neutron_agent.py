@@ -17,6 +17,7 @@
 #    under the License.
 # @author: Pedro Navarro Perez
 # @author: Alessandro Pilotti, Cloudbase Solutions Srl
+# @author: Claudiu Belu, Cloudbase Solutions Srl
 
 import eventlet
 import platform
@@ -24,7 +25,6 @@ import re
 import time
 
 from oslo.config import cfg
-
 from neutron.agent.common import config
 from neutron.agent import rpc as agent_rpc
 from neutron.common import config as logging_config
@@ -34,8 +34,10 @@ from neutron import context
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common.rpc import dispatcher
+from neutron.plugins.hyperv.agent import hyperv_nvgre_agent
 from neutron.plugins.hyperv.agent import utils
 from neutron.plugins.hyperv.agent import utilsfactory
+
 from neutron.plugins.hyperv.common import constants
 
 LOG = logging.getLogger(__name__)
@@ -60,7 +62,11 @@ agent_opts = [
                        'Hyper-V\'s metric APIs. Collected data can by '
                        'retrieved by other apps and services, e.g.: '
                        'Ceilometer. Requires Hyper-V / Windows Server 2012 '
-                       'and above'))
+                       'and above')),
+    cfg.BoolOpt('enable_nvgre_support',
+                default=True,
+                help=_('Enables Hyper-V NVGRE.'
+                       'Requires Windows Server 2012 and above.'))
 ]
 
 
@@ -81,12 +87,22 @@ class HyperVNeutronAgent(object):
         self._set_agent_state()
         self._setup_rpc()
 
+        self._init_nvgre()
+
+    def _init_nvgre(self):
+        if not CONF.AGENT.enable_nvgre_support:
+            return
+
+        self._nvgre_agent = hyperv_nvgre_agent.HyperVNvgreAgent(
+            self._physical_network_mappings.values())
+
     def _set_agent_state(self):
         self.agent_state = {
             'binary': 'neutron-hyperv-agent',
             'host': cfg.CONF.host,
             'topic': n_const.L2_AGENT_TOPIC,
-            'configurations': {'vswitch_mappings':
+            'configurations': {'tunnel_types': [constants.TYPE_GRE],
+                               'vswitch_mappings':
                                self._physical_network_mappings},
             'agent_type': n_const.AGENT_TYPE_HYPERV,
             'start_flag': True}
@@ -113,11 +129,11 @@ class HyperVNeutronAgent(object):
         # Define the listening consumers for the agent
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.NETWORK, topics.DELETE],
-                     [topics.PORT, topics.DELETE],
-                     [constants.TUNNEL, topics.UPDATE]]
+                     [topics.PORT, topics.DELETE]]
         self.connection = agent_rpc.create_consumers(self.dispatcher,
                                                      self.topic,
                                                      consumers)
+
         report_interval = CONF.AGENT.report_interval
         if report_interval:
             heartbeat = loopingcall.LoopingCall(self._report_state)
@@ -191,6 +207,11 @@ class HyperVNeutronAgent(object):
         if network_type in [constants.TYPE_VLAN, constants.TYPE_FLAT]:
             #Nothing to do
             pass
+        elif network_type == constants.TYPE_GRE \
+                and CONF.AGENT.enable_nvgre_support:
+            self._nvgre_agent.bind_gre_network(
+                net_uuid, vswitch_name, segmentation_id)
+
         elif network_type == constants.TYPE_LOCAL:
             #TODO(alexpilotti): Check that the switch type is private
             #or create it if not existing
@@ -233,9 +254,11 @@ class HyperVNeutronAgent(object):
             LOG.info(_('Binding VLAN ID %(segmentation_id)s '
                        'to switch port %(port_id)s'),
                      dict(segmentation_id=segmentation_id, port_id=port_id))
-            self._utils.set_vswitch_port_vlan_id(
-                segmentation_id,
-                port_id)
+            self._utils.set_vswitch_port_vlan_id(segmentation_id, port_id)
+        elif network_type == constants.TYPE_GRE \
+                and CONF.AGENT.enable_nvgre_support:
+            self._nvgre_agent.bind_gre_port(
+                segmentation_id, map['vswitch_name'], port_id)
         elif network_type == constants.TYPE_FLAT:
             #Nothing to do
             pass

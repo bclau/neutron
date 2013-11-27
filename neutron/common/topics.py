@@ -33,6 +33,7 @@ METERING_PLUGIN = 'q-metering-plugin'
 L3_AGENT = 'l3_agent'
 DHCP_AGENT = 'dhcp_agent'
 METERING_AGENT = 'metering_agent'
+HYPERV_NVGRE_AGENT = 'hyperv_nvgre_agent'
 
 
 def get_topic_name(prefix, table, operation, host=None):

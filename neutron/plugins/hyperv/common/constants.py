@@ -18,6 +18,7 @@
 
 # Topic for tunnel notifications between the plugin and agent
 TUNNEL = 'tunnel'
+LOOKUP = 'lookup'
 
 # Special vlan_id value in ovs_vlan_allocations table indicating flat network
 FLAT_VLAN_ID = -1
@@ -26,5 +27,5 @@ FLAT_VLAN_ID = -1
 TYPE_LOCAL = 'local'
 TYPE_FLAT = 'flat'
 TYPE_VLAN = 'vlan'
-TYPE_NVGRE = 'gre'
+TYPE_GRE = 'gre'
 TYPE_NONE = 'none'

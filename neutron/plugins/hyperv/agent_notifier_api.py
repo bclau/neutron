@@ -49,6 +49,9 @@ class AgentNotifierApi(proxy.RpcProxy):
         self.topic_tunnel_update = topics.get_topic_name(topic,
                                                          constants.TUNNEL,
                                                          topics.UPDATE)
+        self.topic_lookup_update = topics.get_topic_name(topic,
+                                                         constants.LOOKUP,
+                                                         topics.UPDATE)
 
     def network_delete(self, context, network_id):
         self.fanout_cast(context,
@@ -78,3 +81,10 @@ class AgentNotifierApi(proxy.RpcProxy):
                                        tunnel_ip=tunnel_ip,
                                        tunnel_id=tunnel_id),
                          topic=self.topic_tunnel_update)
+
+    def lookup_update(self, context, lookup_ip, lookup_details):
+        self.fanout_cast(context,
+                         self.make_msg('lookup_update',
+                                       lookup_ip=lookup_ip,
+                                       lookup_details=lookup_details),
+                         topic=self.topic_lookup_update)

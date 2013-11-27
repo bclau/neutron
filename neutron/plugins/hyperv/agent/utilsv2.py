@@ -26,6 +26,7 @@ class HyperVUtilsV2(utils.HyperVUtils):
     _ETHERNET_SWITCH_PORT = 'Msvm_EthernetSwitchPort'
     _PORT_ALLOC_SET_DATA = 'Msvm_EthernetPortAllocationSettingData'
     _PORT_VLAN_SET_DATA = 'Msvm_EthernetSwitchPortVlanSettingData'
+    _PORT_SECURITY_SET_DATA = 'Msvm_EthernetSwitchPortSecuritySettingData'
     _PORT_ALLOC_ACL_SET_DATA = 'Msvm_EthernetSwitchPortAclSettingData'
     _LAN_ENDPOINT = 'Msvm_LANEndpoint'
     _STATE_DISABLED = 3
@@ -80,6 +81,12 @@ class HyperVUtilsV2(utils.HyperVUtils):
             element.path_(), [res_setting_data.GetText_(1)])
         self._check_job_status(ret_val, job_path)
 
+    def _remove_virt_feature(self, feature_resource):
+        vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
+        (job_path, ret_val) = vs_man_svc.RemoveFeatureSettings(
+            FeatureSettings=[feature_resource.path_()])
+        self._check_job_status(ret_val, job_path)
+
     def disconnect_switch_port(
             self, vswitch_name, switch_port_name, delete_port):
         """Disconnects the switch port."""
@@ -118,35 +125,42 @@ class HyperVUtilsV2(utils.HyperVUtils):
                         return vswitch_port
 
     def set_vswitch_port_vlan_id(self, vlan_id, switch_port_name):
+        port_alloc = self._get_switch_port_or_exception(switch_port_name)
+        vlan_settings = self._create_new_switch_port_feature(
+            port_alloc, self._PORT_VLAN_SET_DATA)
+
+        vlan_settings.AccessVlanId = vlan_id
+        vlan_settings.OperationMode = self._OPERATION_MODE_ACCESS
+
+        self._add_virt_feature(port_alloc, vlan_settings)
+
+    def set_vswitch_port_vsid(self, vsid, switch_port_name):
+        port_alloc = self._get_switch_port_or_exception(switch_port_name)
+        vsid_settings = self._create_new_switch_port_feature(
+            port_alloc, self._PORT_SECURITY_SET_DATA)
+
+        vsid_settings.VirtualSubnetId = vsid
+        self._add_virt_feature(port_alloc, vsid_settings)
+
+    def _create_new_switch_port_feature(self, port_alloc, feature_class_name):
+        feature_settings = self._get_first_item(port_alloc.associators(
+            wmi_result_class=feature_class_name))
+
+        if feature_settings:
+            # Removing the feature because it cannot be modified
+            # due to a wmi exception.
+            self._remove_virt_feature(feature_settings)
+
+        feature_settings = self._get_default_setting_data(feature_class_name)
+        return feature_settings
+
+    def _get_switch_port_or_exception(self, switch_port_name):
         port_alloc, found = self._get_switch_port_allocation(switch_port_name)
         if not found:
             raise utils.HyperVException(
                 msg=_('Port Alloc not found: %s') % switch_port_name)
 
-        vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
-        vlan_settings = self._get_vlan_setting_data_from_port_alloc(port_alloc)
-        if vlan_settings:
-            # Removing the feature because it cannot be modified
-            # due to a wmi exception.
-            (job_path, ret_val) = vs_man_svc.RemoveFeatureSettings(
-                FeatureSettings=[vlan_settings.path_()])
-            self._check_job_status(ret_val, job_path)
-
-        (vlan_settings, found) = self._get_vlan_setting_data(switch_port_name)
-        vlan_settings.AccessVlanId = vlan_id
-        vlan_settings.OperationMode = self._OPERATION_MODE_ACCESS
-        (job_path, out, ret_val) = vs_man_svc.AddFeatureSettings(
-            port_alloc.path_(), [vlan_settings.GetText_(1)])
-        self._check_job_status(ret_val, job_path)
-
-    def _get_vlan_setting_data_from_port_alloc(self, port_alloc):
-        return self._get_first_item(port_alloc.associators(
-            wmi_result_class=self._PORT_VLAN_SET_DATA))
-
-    def _get_vlan_setting_data(self, switch_port_name, create=True):
-        return self._get_setting_data(
-            self._PORT_VLAN_SET_DATA,
-            switch_port_name, create)
+        return port_alloc
 
     def _get_switch_port_allocation(self, switch_port_name, create=False):
         return self._get_setting_data(
@@ -174,6 +188,10 @@ class HyperVUtilsV2(utils.HyperVUtils):
         if obj:
             return obj[0]
 
+    def get_mac_address(self, switch_port_name):
+        vnic = self._get_vnic_settings(switch_port_name)
+        return vnic.Address
+
     def enable_port_metrics_collection(self, switch_port_name):
         port, found = self._get_switch_port_allocation(switch_port_name, False)
         if not found:
@@ -183,12 +201,12 @@ class HyperVUtilsV2(utils.HyperVUtils):
         acls = port.associators(wmi_result_class=self._PORT_ALLOC_ACL_SET_DATA)
         for acl_type in [self._ACL_TYPE_IPV4, self._ACL_TYPE_IPV6]:
             for acl_dir in [self._ACL_DIR_IN, self._ACL_DIR_OUT]:
-                acls = [v for v in acls
-                        if v.Action == self._ACL_ACTION_METER and
-                        v.Applicability == self._ACL_APPLICABILITY_LOCAL and
-                        v.Direction == acl_dir and
-                        v.AclType == acl_type]
-                if not acls:
+                _acls = [v for v in acls
+                         if v.Action == self._ACL_ACTION_METER and
+                         v.Applicability == self._ACL_APPLICABILITY_LOCAL and
+                         v.Direction == acl_dir and
+                         v.AclType == acl_type]
+                if not _acls:
                     acl = self._get_default_setting_data(
                         self._PORT_ALLOC_ACL_SET_DATA)
                     acl.AclType = acl_type
