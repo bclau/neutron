@@ -19,6 +19,7 @@ from oslo.config import cfg
 
 from neutron.openstack.common import log as logging
 from neutron.plugins.hyperv.agent import utils
+from neutron.plugins.hyperv.agent import utils_nvgre
 from neutron.plugins.hyperv.agent import utilsv2
 
 # Check needed for unit testing on Unix
@@ -46,6 +47,16 @@ def _check_min_windows_version(major, minor, build=0):
     return map(int, version_str.split('.')) >= [major, minor, build]
 
 
+def _get_class(v1_class, v2_class, force_v1_flag, minor_version=2):
+    # V2 classes are supported starting from Hyper-V Server 2012 and
+    # Windows Server 2012 (kernel version 6.2)
+    if not force_v1_flag and _check_min_windows_version(6, minor_version):
+        cls = v2_class
+    else:
+        cls = v1_class
+    return cls
+
+
 def get_hypervutils():
     # V1 virtualization namespace features are supported up to
     # Windows Server / Hyper-V Server 2012
@@ -67,3 +78,7 @@ def get_hypervutils():
     LOG.debug(_("Loading class: %(module_name)s.%(class_name)s"),
               {'module_name': cls.__module__, 'class_name': cls.__name__})
     return cls()
+
+
+def get_hyperv_nvgre_utils():
+    return _get_class(utils_nvgre.Nvgre, utils_nvgre.NvgreR2, False, 3)()

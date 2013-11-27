@@ -149,6 +149,22 @@ class HyperVUtilsV2(utils.HyperVUtils):
                     if ext_port:
                         return vswitch_port
 
+    def get_vswitch_external_network_name(self, vswitch_name):
+        vswitch = self._get_vswitch(vswitch_name)
+        vswitch_ports = vswitch.associators(
+            wmi_result_class=self._ETHERNET_SWITCH_PORT)
+        for vswitch_port in vswitch_ports:
+            lan_endpoints = vswitch_port.associators(
+                wmi_result_class=self._LAN_ENDPOINT)
+            if len(lan_endpoints):
+                lan_endpoints = lan_endpoints[0].associators(
+                    wmi_result_class=self._LAN_ENDPOINT)
+                if len(lan_endpoints):
+                    ext_port = lan_endpoints[0].associators(
+                        wmi_result_class=self._EXTERNAL_PORT)
+                    if ext_port:
+                        return ext_port[0].ElementName
+
     def set_vswitch_port_vlan_id(self, vlan_id, switch_port_name):
         port_alloc, found = self._get_switch_port_allocation(switch_port_name)
         if not found:
@@ -167,18 +183,47 @@ class HyperVUtilsV2(utils.HyperVUtils):
         (vlan_settings, found) = self._get_vlan_setting_data(switch_port_name)
         vlan_settings.AccessVlanId = vlan_id
         vlan_settings.OperationMode = self._OPERATION_MODE_ACCESS
-        (job_path, out, ret_val) = vs_man_svc.AddFeatureSettings(
-            port_alloc.path_(), [vlan_settings.GetText_(1)])
-        self._check_job_status(ret_val, job_path)
+        self._add_virt_feature(port_alloc, vlan_settings)
+
+    def set_vswitch_port_vsid(self, vsid, switch_port_name):
+        port_alloc, found = self._get_switch_port_allocation(switch_port_name)
+        if not found:
+            raise utils.HyperVException(
+                msg=_('Port Allocation not found: %s') % switch_port_name)
+
+        vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
+        vsid_settings = self._get_security_setting_data_from_port_alloc(
+            port_alloc)
+
+        if vsid_settings:
+            if vsid_settings.VirtualSubnetId == vsid:
+                # VSID already added, no need to readd it.
+                return
+            # Removing the feature because it cannot be modified
+            # due to a wmi exception.
+            self._remove_virt_feature(vsid_settings)
+
+        (vsid_settings, found) = self._get_security_setting_data(
+            switch_port_name)
+        vsid_settings.VirtualSubnetId = vsid
+        self._add_virt_feature(port_alloc, vsid_settings)
 
     def _get_vlan_setting_data_from_port_alloc(self, port_alloc):
         return self._get_first_item(port_alloc.associators(
             wmi_result_class=self._PORT_VLAN_SET_DATA))
 
+    def _get_security_setting_data_from_port_alloc(self, port_alloc):
+        return self._get_first_item(port_alloc.associators(
+            wmi_result_class=self._PORT_SECURITY_SET_DATA))
+
     def _get_vlan_setting_data(self, switch_port_name, create=True):
         return self._get_setting_data(
             self._PORT_VLAN_SET_DATA,
             switch_port_name, create)
+
+    def _get_security_setting_data(self, switch_port_name, create=True):
+        return self._get_setting_data(
+            self._PORT_SECURITY_SET_DATA, switch_port_name, create)
 
     def _get_switch_port_allocation(self, switch_port_name, create=False):
         return self._get_setting_data(

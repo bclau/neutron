@@ -66,6 +66,10 @@ class HyperVUtils(object):
             return False
         return True
 
+    def get_vnic_mac_address(self, switch_port_name):
+        vnic = self._get_vnic_settings(switch_port_name)
+        return vnic.Address
+
     def get_vnic_ids(self):
         return set(
             p.ElementName

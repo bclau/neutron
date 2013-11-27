@@ -141,6 +141,30 @@ class TestHyperVUtilsV2(base.BaseTestCase):
 
         return mock_res_setting_data
 
+    def test_remove_virt_feature(self):
+        mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
+        mock_rsd = self._mock_vsms_method(mock_svc.RemoveFeatureSettings, 2)
+
+        self._utils._remove_virt_feature(mock_rsd)
+
+        mock_svc.RemoveFeatureSettings.assert_called_with(
+            FeatureSettings=[self._FAKE_RES_PATH])
+
+    def _mock_vsms_method(self, vsms_method, arg_count):
+        args = None
+        if arg_count == 3:
+            args = (self._FAKE_JOB_PATH, mock.MagicMock(), self._FAKE_RET_VAL)
+        else:
+            args = (self._FAKE_JOB_PATH, self._FAKE_RET_VAL)
+
+        vsms_method.return_value = args
+        mock_res_setting_data = mock.MagicMock()
+        mock_res_setting_data.GetText_.return_value = self._FAKE_RES_DATA
+        mock_res_setting_data.path_.return_value = self._FAKE_RES_PATH
+        self._utils._check_job_status = mock.MagicMock()
+
+        return mock_res_setting_data
+
     def test_disconnect_switch_port_delete_port(self):
         self._test_disconnect_switch_port(True)
 
@@ -215,6 +239,38 @@ class TestHyperVUtilsV2(base.BaseTestCase):
 
         self.assertTrue(mock_svc.RemoveFeatureSettings.called)
         self.assertTrue(mock_svc.AddFeatureSettings.called)
+
+    @mock.patch.object(utilsv2.HyperVUtilsV2,
+                       '_get_security_setting_data_from_port_alloc')
+    def test_set_vswitch_port_vsid(self, mock_get_security_set_data):
+        mock_port_alloc = mock.MagicMock()
+        self._utils._get_switch_port_allocation = mock.MagicMock(return_value=(
+            mock_port_alloc, True))
+
+        mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
+        mock_svc.RemoveFeatureSettings.return_value = (mock.sentinel.job_path,
+                                                       self._FAKE_RET_VAL)
+        mock_vsid_settings = mock.MagicMock()
+        self._utils._get_security_setting_data = mock.MagicMock(return_value=(
+            mock_vsid_settings, True))
+
+        mock_svc.AddFeatureSettings.return_value = (mock.sentinel.job_path,
+                                                    None,
+                                                    self._FAKE_RET_VAL)
+
+        self._utils.set_vswitch_port_vsid(mock.sentinel.vsid,
+                                          mock.sentinel.switch_port_name)
+
+        self.assertTrue(mock_svc.RemoveFeatureSettings.called)
+        self.assertTrue(mock_svc.AddFeatureSettings.called)
+
+    def test_get_vnic_mac_address(self):
+        mock_vnic = mock.MagicMock(Address=mock.sentinel.mac_address)
+        self._utils._get_vnic_settings = mock.MagicMock(return_value=mock_vnic)
+
+        actual_mac_address = self._utils.get_vnic_mac_address(
+            self._FAKE_PORT_NAME)
+        self.assertEqual(mock.sentinel.mac_address, actual_mac_address)
 
     def test_get_setting_data(self):
         self._utils._get_first_item = mock.MagicMock(return_value=None)

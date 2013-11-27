@@ -23,6 +23,7 @@ from oslo.config import cfg
 
 from neutron.plugins.hyperv.agent import utils
 from neutron.plugins.hyperv.agent import utilsfactory
+from neutron.plugins.hyperv.agent import utilsnvgre
 from neutron.plugins.hyperv.agent import utilsv2
 from neutron.tests import base
 
@@ -48,4 +49,16 @@ class TestHyperVUtilsFactory(base.BaseTestCase):
         utilsfactory._get_windows_version = mock.MagicMock(
             return_value=os_version)
         actual_class = type(utilsfactory.get_hypervutils())
+        self.assertEqual(actual_class, expected_class)
+
+    def test_get_hyperv_nvgre_utils(self):
+        self._test_returned_nvgre_class(utilsnvgre.Nvgre, '6.2.0')
+
+    def test_get_hyperv_nvgre_utils_r2(self):
+        self._test_returned_nvgre_class(utilsnvgre.NvgreR2, '6.3.9600')
+
+    def _test_returned_nvgre_class(self, expected_class, os_version):
+        utilsfactory._get_windows_version = mock.MagicMock(
+            return_value=os_version)
+        actual_class = type(utilsfactory.get_hyperv_nvgre_utils())
         self.assertEqual(actual_class, expected_class)

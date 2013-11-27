@@ -18,15 +18,19 @@ from sqlalchemy.orm import exc
 
 from neutron.common import exceptions as n_exc
 import neutron.db.api as db_api
+from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.openstack.common import log as logging
-from neutron.plugins.hyperv.common import constants
 from neutron.plugins.hyperv import model as hyperv_model
+from neutron.plugins.hyperv.common import constants
 
 LOG = logging.getLogger(__name__)
 
 
 class HyperVPluginDB(object):
+    def initialize(self):
+        engine = db_api.get_engine()
+        model_base.BASEV2.metadata.create_all(engine)
 
     def reserve_vlan(self, session):
         with session.begin(subtransactions=True):
@@ -212,3 +216,39 @@ class HyperVPluginDB(object):
             # remove from table unallocated vlans for any unconfigured physical
             # networks
             self._remove_unconfigured_vlans(session, allocations)
+
+    def add_lookup_record(self, provider_addr, customer_addr, mac, vsid):
+        """Persists a unique LookupRecord used for Hyper-V NVGRE."""
+        session = db_api.get_session()
+        with session.begin(subtransactions=True):
+            records = (session.query(hyperv_model.LookupRecord).
+                       filter_by(customer_addr=customer_addr, vsid=vsid))
+
+            for record in records:
+                session.delete(record)
+
+        with session.begin(subtransactions=True):
+            record = hyperv_model.LookupRecord(
+                id=customer_addr + str(vsid),
+                provider_addr=provider_addr,
+                customer_addr=customer_addr,
+                mac_address=mac,
+                vsid=vsid)
+            session.add(record)
+        LOG.info(_("Added LookupRecord for host %(prov_addr)s containing "
+                   "%(customer_addr)s %(mac_address)s VSID %(vsid)s"),
+                 {'prov_addr': record.provider_addr,
+                  'customer_addr': record.customer_addr,
+                  'mac_address': record.mac_address,
+                  'vsid': record.vsid})
+
+    def get_lookup_records(self):
+        """Returns all LookupRecords used for Hyper-V NVGRE."""
+        session = db_api.get_session()
+        with session.begin(subtransactions=True):
+            records = session.query(hyperv_model.LookupRecord)
+            return [{'provider_addr': record.provider_addr,
+                     'customer_addr': record.customer_addr,
+                     'mac_address': record.mac_address,
+                     'vsid': record.vsid}
+                    for record in records]

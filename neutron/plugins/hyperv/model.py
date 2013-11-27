@@ -15,6 +15,7 @@
 
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
 
+from neutron.db import models_v2
 from neutron.db import model_base
 
 
@@ -50,3 +51,14 @@ class NetworkBinding(model_base.BASEV2):
         self.network_type = network_type
         self.physical_network = physical_network
         self.segmentation_id = segmentation_id
+
+
+class LookupRecord(model_base.BASEV2, models_v2.HasId):
+    """Represents a LookupRecord used for Hyper-V NVGRE."""
+
+    __tablename__ = 'hyperv_lookup_records'
+
+    provider_addr = Column(String(64), nullable=False)
+    customer_addr = Column(String(64), nullable=False)
+    mac_address = Column(String(12), nullable=False)
+    vsid = Column(Integer, nullable=False)

@@ -58,6 +58,7 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
         self.agent.sec_groups_agent = mock.MagicMock()
         self.agent.context = mock.Mock()
         self.agent.agent_id = mock.Mock()
+        self.agent._utils = mock.MagicMock()
 
         fake_agent_state = {
             'binary': 'neutron-hyperv-agent',
