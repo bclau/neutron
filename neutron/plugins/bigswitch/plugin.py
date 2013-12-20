@@ -166,13 +166,8 @@ METADATA_SERVER_IP = '169.254.169.254'
 
 
 class RemoteRestError(exceptions.NeutronException):
-
-    def __init__(self, message):
-        if message is None:
-            message = "None"
-        self.message = _("Error in REST call to remote network "
-                         "controller") + ": " + message
-        super(RemoteRestError, self).__init__()
+    message = _("Error in REST call to remote network "
+                "controller: %(reason)s")
 
 
 class ServerProxy(object):
@@ -330,7 +325,7 @@ class ServerPool(object):
         resp = self.rest_call(action, resource, data, headers, ignore_codes)
         if self.server_failure(resp, ignore_codes):
             LOG.error(_("NeutronRestProxyV2: ") + errstr, resp[2])
-            raise RemoteRestError(resp[2])
+            raise RemoteRestError(reason=resp[2])
         if resp[0] in ignore_codes:
             LOG.warning(_("NeutronRestProxyV2: Received and ignored error "
                           "code %(code)s on %(action)s action to resource "
@@ -449,7 +444,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
         neutron_extensions.append_api_extensions_path(extensions.__path__)
 
         # 'servers' is the list of network controller REST end-points
-        # (used in order specified till one suceeds, and it is sticky
+        # (used in order specified till one succeeds, and it is sticky
         # till next failure). Use 'server_auth' to encode api-key
         servers = cfg.CONF.RESTPROXY.servers
         server_auth = cfg.CONF.RESTPROXY.server_auth
