@@ -249,3 +249,29 @@ class TestHyperVUtilsV2(base.BaseTestCase):
             self.assertEqual(4, len(self._utils._add_virt_feature.mock_calls))
             self._utils._add_virt_feature.assert_called_with(
                 mock_port, mock_acl)
+
+    def test_enable_port_metrics_collection2(self):
+        mock_port = mock.MagicMock()
+        self._utils._get_switch_port_allocation = mock.MagicMock(return_value=(
+            mock_port, True))
+
+        mock_acls = []
+        for a_type in [self._utils._ACL_TYPE_IPV4, self._utils._ACL_TYPE_IPV6]:
+            for acl_dir in [self._utils._ACL_DIR_IN, self._utils._ACL_DIR_OUT]:
+                mock_acl = self._create_mock_acl(a_type, acl_dir)
+                mock_acls.append(mock_acl)
+
+        mock_port.associators.return_value = mock_acls
+
+        with mock.patch.object(self._utils, '_add_virt_feature'):
+            self._utils.enable_port_metrics_collection(self._FAKE_PORT_NAME)
+            self.assertEqual(0, len(self._utils._add_virt_feature.mock_calls))
+
+    def _create_mock_acl(self, acl_type, acl_dir):
+        mock_acl = mock.MagicMock()
+        mock_acl.Action = self._utils._ACL_ACTION_METER
+        mock_acl.Applicability = self._utils._ACL_APPLICABILITY_LOCAL
+        mock_acl.Direction = acl_dir
+        mock_acl.AclType = acl_type
+
+        return mock_acl

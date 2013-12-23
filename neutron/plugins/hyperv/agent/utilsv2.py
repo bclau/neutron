@@ -180,10 +180,11 @@ class HyperVUtilsV2(utils.HyperVUtils):
             return
 
         # Add the ACLs only if they don't already exist
-        acls = port.associators(wmi_result_class=self._PORT_ALLOC_ACL_SET_DATA)
+        all_acls = port.associators(
+            wmi_result_class=self._PORT_ALLOC_ACL_SET_DATA)
         for acl_type in [self._ACL_TYPE_IPV4, self._ACL_TYPE_IPV6]:
             for acl_dir in [self._ACL_DIR_IN, self._ACL_DIR_OUT]:
-                acls = [v for v in acls
+                acls = [v for v in all_acls
                         if v.Action == self._ACL_ACTION_METER and
                         v.Applicability == self._ACL_APPLICABILITY_LOCAL and
                         v.Direction == acl_dir and
