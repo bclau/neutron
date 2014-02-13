@@ -39,6 +39,14 @@ CONF.register_opts(hyper_opts, 'hyperv')
 
 LOG = logging.getLogger(__name__)
 
+hyperv_utils_classes = [
+    (utilsv2.HyperVUtilsV2R2,
+     lambda v1_flag: _check_min_windows_version(6, 3)),
+    (utilsv2.HyperVUtilsV2,
+     lambda v1_flag: not v1_flag and _check_min_windows_version(6, 2)),
+    (utils.HyperVUtils, lambda v1_flag: True)
+]
+
 
 def _get_windows_version():
     return wmi.WMI(moniker='//./root/cimv2').Win32_OperatingSystem()[0].Version
@@ -49,18 +57,17 @@ def _check_min_windows_version(major, minor, build=0):
     return map(int, version_str.split('.')) >= [major, minor, build]
 
 
-def _get_class(v1_class, v2_class, force_v1_flag):
+def _get_class(force_v1_flag):
     # V2 classes are supported starting from Hyper-V Server 2012 and
     # Windows Server 2012 (kernel version 6.2)
-    if not force_v1_flag and _check_min_windows_version(6, 2):
-        cls = v2_class
-    else:
-        cls = v1_class
+    for clazz, clazz_conditions_met in hyperv_utils_classes:
+        if clazz_conditions_met(force_v1_flag):
+            cls = clazz
+            break
     LOG.debug(_("Loading class: %(module_name)s.%(class_name)s"),
               {'module_name': cls.__module__, 'class_name': cls.__name__})
     return cls
 
 
 def get_hypervutils():
-    return _get_class(utils.HyperVUtils, utilsv2.HyperVUtilsV2,
-                      CONF.hyperv.force_hyperv_utils_v1)()
+    return _get_class(CONF.hyperv.force_hyperv_utils_v1)()

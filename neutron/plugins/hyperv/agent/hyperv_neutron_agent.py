@@ -27,6 +27,7 @@ from oslo.config import cfg
 
 from neutron.agent.common import config
 from neutron.agent import rpc as agent_rpc
+from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as logging_config
 from neutron.common import constants as n_const
 from neutron.common import topics
@@ -35,6 +36,7 @@ from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.common import constants as p_const
+from neutron.plugins.hyperv.agent import security_groups_driver as sg_driver
 from neutron.plugins.hyperv.agent import utils
 from neutron.plugins.hyperv.agent import utilsfactory
 from neutron.plugins.hyperv.common import constants
@@ -70,6 +72,44 @@ CONF.register_opts(agent_opts, "AGENT")
 config.register_agent_state_opts_helper(cfg.CONF)
 
 
+class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpcMixin):
+    # Set RPC API version to 1.1 by default.
+    RPC_API_VERSION = '1.1'
+
+    def __init__(self, context, plugin_rpc):
+        self.context = context
+        self.plugin_rpc = plugin_rpc
+        self.firewall = sg_driver.HyperVSecurityGroupsDriver()
+
+        self._setup_rpc()
+
+    def _setup_rpc(self):
+        self.topic = topics.AGENT
+        self.dispatcher = self._create_rpc_dispatcher()
+        consumers = [[topics.SECURITY_GROUP, topics.UPDATE]]
+
+        self.connection = agent_rpc.create_consumers(self.dispatcher,
+                                                     self.topic,
+                                                     consumers)
+
+    def _create_rpc_dispatcher(self):
+        rpc_callback = HyperVSecurityCallbackMixin(self)
+        return dispatcher.RpcDispatcher([rpc_callback])
+
+
+class HyperVSecurityCallbackMixin(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+    # Set RPC API version to 1.1 by default.
+    RPC_API_VERSION = '1.1'
+
+    def __init__(self, sg_agent):
+        self.sg_agent = sg_agent
+
+
+class HyperVPluginApi(agent_rpc.PluginApi,
+                      sg_rpc.SecurityGroupServerRpcApiMixin):
+    pass
+
+
 class HyperVNeutronAgent(object):
     # Set RPC API version to 1.0 by default.
     RPC_API_VERSION = '1.0'
@@ -103,7 +143,7 @@ class HyperVNeutronAgent(object):
     def _setup_rpc(self):
         self.agent_id = 'hyperv_%s' % platform.node()
         self.topic = topics.AGENT
-        self.plugin_rpc = agent_rpc.PluginApi(topics.PLUGIN)
+        self.plugin_rpc = HyperVPluginApi(topics.PLUGIN)
 
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
 
@@ -119,6 +159,9 @@ class HyperVNeutronAgent(object):
         self.connection = agent_rpc.create_consumers(self.dispatcher,
                                                      self.topic,
                                                      consumers)
+
+        self.sec_groups_agent = HyperVSecurityAgent(
+            self.context, self.plugin_rpc)
         report_interval = CONF.AGENT.report_interval
         if report_interval:
             heartbeat = loopingcall.LoopingCall(self._report_state)
@@ -165,6 +208,9 @@ class HyperVNeutronAgent(object):
     def port_update(self, context, port=None, network_type=None,
                     segmentation_id=None, physical_network=None):
         LOG.debug(_("port_update received"))
+        if 'security_groups' in port:
+            self.sec_groups_agent.refresh_firewall()
+
         self._treat_vif_port(
             port['id'], port['network_id'],
             network_type, physical_network,
@@ -311,6 +357,8 @@ class HyperVNeutronAgent(object):
                     device_details['physical_network'],
                     device_details['segmentation_id'],
                     device_details['admin_state_up'])
+
+                self.sec_groups_agent.prepare_devices_filter(devices)
                 self.plugin_rpc.update_device_up(self.context,
                                                  device,
                                                  self.agent_id,
