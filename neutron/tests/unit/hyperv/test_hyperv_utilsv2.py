@@ -78,8 +78,6 @@ class TestHyperVUtilsV2(base.BaseTestCase):
         self._utils._get_switch_port_allocation.return_value = (mock_port,
                                                                 found)
 
-        self._utils.create_default_reject_all_rules = mock.MagicMock()
-
         self._utils.connect_vnic_to_vswitch(self._FAKE_VSWITCH_NAME,
                                             self._FAKE_PORT_NAME)
 

@@ -71,8 +71,6 @@ class HyperVUtilsV2(utils.HyperVUtils):
         else:
             self._modify_virt_resource(port)
 
-        self.create_default_reject_all_rules(switch_port_name)
-
     def _modify_virt_resource(self, res_setting_data):
         vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
         (job_path, out_set_data, ret_val) = vs_man_svc.ModifyResourceSettings(

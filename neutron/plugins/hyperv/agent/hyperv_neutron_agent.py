@@ -79,9 +79,10 @@ class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpcMixin):
     def __init__(self, context, plugin_rpc):
         self.context = context
         self.plugin_rpc = plugin_rpc
-        self.firewall = sg_driver.HyperVSecurityGroupsDriver()
+        self.init_firewall()
 
-        self._setup_rpc()
+        if sg_rpc.is_firewall_enabled():
+            self._setup_rpc()
 
     def _setup_rpc(self):
         self.topic = topics.AGENT

@@ -50,11 +50,14 @@ class TestHyperVSecurityGroupsDriver(base.BaseTestCase):
 
     def test_prepare_port_filter(self):
         mock_port = self._get_port()
+        mock_utils_method = mock.MagicMock()
         self._driver._create_port_rules = mock.MagicMock()
+        self._driver._utils.create_default_reject_all_rules = mock_utils_method
         self._driver.prepare_port_filter(mock_port)
 
         self.assertEqual(mock_port,
                          self._driver._security_ports[self._FAKE_DEVICE])
+        mock_utils_method.assert_called_once_with(self._FAKE_ID)
         self._driver._create_port_rules.assert_called_once_with(
             self._FAKE_ID, mock_port['security_group_rules'])
 

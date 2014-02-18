@@ -43,6 +43,12 @@ class HyperVSecurityGroupsDriver(firewall.FirewallDriver):
 
     def prepare_port_filter(self, port):
         LOG.debug('Creating port %s rules' % len(port['security_group_rules']))
+
+        # newly created port, add default rules.
+        if port['device'] not in self._security_ports:
+            LOG.debug('Creating default reject rules.')
+            self._utils.create_default_reject_all_rules(port['id'])
+
         self._security_ports[port['device']] = port
         self._create_port_rules(port['id'], port['security_group_rules'])
 
