@@ -250,6 +250,43 @@ class TestHyperVUtilsV2(base.BaseTestCase):
                 mock_port, mock_acl)
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_enable_control_metrics_ok(self, mock_get_port_allocation):
+        mock_metrics_svc = self._utils._conn.Msvm_MetricService()[0]
+        mock_metrics_def_source = self._utils._conn.CIM_BaseMetricDefinition
+        mock_metric_def = mock.MagicMock()
+        mock_port = mock.MagicMock()
+        mock_acl = mock.MagicMock()
+        mock_acl.Action = self._utils._ACL_ACTION_METER
+
+        mock_port.associators.return_value = [
+            mock_acl, mock_acl, mock_acl, mock_acl]
+        mock_get_port_allocation.return_value = (mock_port, True)
+
+        mock_metrics_def_source.return_value = [mock_metric_def]
+        m_call = mock.call(Subject=mock_port.path_.return_value,
+                           Definition=mock_metric_def.path_.return_value,
+                           MetricCollectionEnabled=self._utils._METRIC_ENABLED)
+
+        result = self._utils.enable_control_metrics(mock_port)
+
+        self.assertTrue(result)
+        mock_metrics_svc.ControlMetrics.assert_has_calls([m_call, m_call])
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_enable_control_metrics_ok(self, mock_get_port_allocation):
+        mock_port = mock.MagicMock()
+        mock_acl = mock.MagicMock()
+        mock_acl.Action = self._utils._ACL_ACTION_METER
+
+        mock_port.associators.return_value = [mock_acl]
+        mock_get_port_allocation.return_value = (mock_port, True)
+
+        result = self._utils.enable_control_metrics(mock_port)
+        self.assertFalse(result)
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._remove_virt_feature')
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._bind_security_rule')
