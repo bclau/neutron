@@ -102,9 +102,12 @@ class HyperVUtilsV2(utils.HyperVUtils):
         self._check_job_status(ret_val, job)
 
     def _add_virt_feature(self, element, res_setting_data):
+        self._add_multiple_virt_features(element, [res_setting_data])
+
+    def _add_multiple_virt_features(self, element, res_setting_datas):
         vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
         (job_path, out_set_data, ret_val) = vs_man_svc.AddFeatureSettings(
-            element.path_(), [res_setting_data.GetText_(1)])
+            element.path_(), [r.GetText_(1) for r in res_setting_datas])
         self._check_job_status(ret_val, job_path)
 
     def _remove_virt_feature(self, feature_resource):
@@ -216,6 +219,7 @@ class HyperVUtilsV2(utils.HyperVUtils):
             return
 
         # Add the ACLs only if they don't already exist
+        new_acls = []
         acls = port.associators(wmi_result_class=self._PORT_ALLOC_ACL_SET_DATA)
         for acl_type in [self._ACL_TYPE_IPV4, self._ACL_TYPE_IPV6]:
             for acl_dir in [self._ACL_DIR_IN, self._ACL_DIR_OUT]:
@@ -225,7 +229,10 @@ class HyperVUtilsV2(utils.HyperVUtils):
                 if not _acls:
                     acl = self._create_acl(
                         acl_dir, acl_type, self._ACL_ACTION_METER)
-                    self._add_virt_feature(port, acl)
+                    new_acls.append(acl)
+
+        if new_acls:
+            self._add_multiple_virt_features(port, new_acls)
 
     def enable_control_metrics(self, switch_port_name):
         port, found = self._get_switch_port_allocation(switch_port_name, False)
@@ -297,8 +304,7 @@ class HyperVUtilsV2(utils.HyperVUtils):
             acls, self._ACL_ACTION_ALLOW, direction, acl_type, local_port,
             protocol, remote_address)
 
-        for acl in filtered_acls:
-            self._remove_virt_feature(acl)
+        self._remove_multiple_virt_features(filtered_acls)
 
     def remove_all_security_rules(self, switch_port_name):
         port, found = self._get_switch_port_allocation(switch_port_name, False)
@@ -325,10 +331,8 @@ class HyperVUtilsV2(utils.HyperVUtils):
         if len(filtered_acls) >= self._REJECT_ACLS_COUNT:
             return
 
-        for acl in filtered_acls:
-            self._remove_virt_feature(acl)
-
-        weight = 0
+        filtered_acls = acls
+        acls = []
         ipv4_pair = (self._ACL_TYPE_IPV4, self._IPV4_ANY)
         ipv6_pair = (self._ACL_TYPE_IPV6, self._IPV6_ANY)
         for direction in [self._ACL_DIR_IN, self._ACL_DIR_OUT]:
@@ -336,10 +340,22 @@ class HyperVUtilsV2(utils.HyperVUtils):
                 for protocol in [self._TCP_PROTOCOL,
                                  self._UDP_PROTOCOL,
                                  self._ICMP_PROTOCOL]:
-                    self._bind_security_rule(
-                        port, direction, acl_type, self._ACL_ACTION_DENY,
-                        self._ACL_DEFAULT, protocol, address, weight)
-                    weight += 1
+
+                    existent_acls = self._filter_security_acls(
+                        filtered_acls, self._ACL_ACTION_DENY, direction,
+                        acl_type, self._ACL_DEFAULT, protocol, address)
+
+                    if not existent_acls:
+                        weight = self._get_new_deny_weight(filtered_acls)
+                        acl = self._create_security_acl(
+                            direction, acl_type, self._ACL_ACTION_DENY,
+                            self._ACL_DEFAULT, protocol, address, weight)
+
+                        filtered_acls.append(acl)
+                        acls.append(acl)
+
+        if acls:
+            self._add_multiple_virt_features(port, acls)
 
     def _bind_security_rule(self, port, direction, acl_type, action,
                             local_port, protocol, remote_address, weight):
@@ -348,8 +364,9 @@ class HyperVUtilsV2(utils.HyperVUtils):
             acls, action, direction, acl_type, local_port, protocol,
             remote_address)
 
-        for acl in filtered_acls:
-            self._remove_virt_feature(acl)
+        if not self._had_to_remove_existing_acls(self._ACL_ACTION_ALLOW,
+                                                 filtered_acls):
+            return
 
         acl = self._create_security_acl(
             direction, acl_type, action, local_port, protocol, remote_address,
@@ -374,6 +391,13 @@ class HyperVUtilsV2(utils.HyperVUtils):
                 RemoteAddressPrefixLength=remote_prefix_length)
         return acl
 
+    def _had_to_remove_existing_acls(self, action, acls):
+        different_acls = [a for a in acls if a.Action is not action]
+        if different_acls:
+            self._remove_multiple_virt_features(different_acls)
+            return True
+        return False
+
     def _filter_acls(self, acls, action, direction, acl_type, remote_addr=""):
         return [v for v in acls
                 if v.Action == action and
@@ -387,13 +411,17 @@ class HyperVUtilsV2(utils.HyperVUtils):
         remote_prefix_length = int(remote_prefix_length)
 
         return [v for v in acls
-                if v.Direction == direction and
-                v.Action in [self._ACL_ACTION_ALLOW, self._ACL_ACTION_DENY] and
-                v.AclType == acl_type and
-                v.RemoteAddress == remote_address and
-                v.RemoteAddressPrefixLength == remote_prefix_length]
+                if v.wmi_property('Direction').Value == direction and
+                v.wmi_property('Action').Value != self._ACL_ACTION_METER and
+                v.wmi_property('AclType').Value == acl_type and
+                v.wmi_property('RemoteAddress').Value == remote_address and
+                v.wmi_property(
+                    'RemoteAddressPrefixLength').Value == remote_prefix_length]
 
     def _get_new_weight(self, acls):
+        return 0
+
+    def _get_new_deny_weight(self, acls):
         return 0
 
 
@@ -425,12 +453,27 @@ class HyperVUtilsV2R2(HyperVUtilsV2):
                 v.Protocol == protocol and
                 v.RemoteIPAddress == remote_addr]
 
+    def _had_to_remove_existing_acls(self, action, acls):
+        return len(acls) is 0
+
     def _get_new_weight(self, acls):
         acls = [a for a in acls if a.Action is not self._ACL_ACTION_DENY]
         if not acls:
             return self._MAX_WEIGHT - 1
-
         weights = [a.Weight for a in acls]
+        return self._get_weight(weights)
+
+    def _get_new_deny_weight(self, acls):
+        acls = [a for a in acls if
+                a.wmi_property('Action').Value is self._ACL_ACTION_DENY]
+        if not acls:
+            return 0
+
+        # Any values set are cached. Set values are retrieved this way.
+        weights = [a.wmi_property('Weight').Value for a in acls]
+        return self._get_weight(weights)
+
+    def _get_weight(self, weights):
         min_weight = min(weights)
         for weight in range(min_weight, self._MAX_WEIGHT):
             if weight not in weights:
