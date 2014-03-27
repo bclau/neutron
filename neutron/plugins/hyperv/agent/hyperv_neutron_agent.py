@@ -387,7 +387,7 @@ class HyperVNeutronAgent(object):
                 # check if security groups is enabled.
                 # if not, teardown the security group rules
                 if CONF.SECURITYGROUP.enable_security_group:
-                    self.sec_groups_agent.prepare_devices_filter(devices)
+                    self.sec_groups_agent.prepare_devices_filter(device)
                 else:
                     self._utils.remove_all_security_rules(
                         device_details['port_id'])

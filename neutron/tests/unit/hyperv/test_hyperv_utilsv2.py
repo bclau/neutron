@@ -242,13 +242,12 @@ class TestHyperVUtilsV2(base.BaseTestCase):
         with mock.patch.multiple(
             self._utils,
             _get_default_setting_data=mock.MagicMock(return_value=mock_acl),
-            _add_virt_feature=mock.MagicMock()):
+            _add_multiple_virt_features=mock.MagicMock()):
 
             self._utils.enable_port_metrics_collection(self._FAKE_PORT_NAME)
 
-            self.assertEqual(4, len(self._utils._add_virt_feature.mock_calls))
-            self._utils._add_virt_feature.assert_called_with(
-                mock_port, mock_acl)
+            self._utils._add_multiple_virt_features.assert_called_with(
+                mock_port, [mock_acl] * 4)
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._get_switch_port_allocation')
@@ -347,12 +346,15 @@ class TestHyperVUtilsV2(base.BaseTestCase):
             [self._FAKE_RES_PATH])
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
-                '._remove_virt_feature')
+                '._add_multiple_virt_features')
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
-                '._bind_security_rule')
-    def test_create_default_reject_all_rules(self, mock_bind, mock_remove):
+                '._create_security_acl')
+    def test_create_default_reject_all_rules(self, mock_create, mock_add):
         (m_port, m_acl) = self._setup_security_rule_test()
         m_acl.Action = self._utils._ACL_ACTION_DENY
+        mock_create.return_value = m_acl
+        self._utils._filter_security_acls.return_value = []
+
         self._utils.create_default_reject_all_rules(self._FAKE_PORT_NAME)
 
         calls = []
@@ -363,16 +365,17 @@ class TestHyperVUtilsV2(base.BaseTestCase):
                 for protocol in [self._utils._TCP_PROTOCOL,
                                  self._utils._UDP_PROTOCOL,
                                  self._utils._ICMP_PROTOCOL]:
-                    calls.append(mock.call(m_port, direction, acl_type,
+                    calls.append(mock.call(direction, acl_type,
                                            self._utils._ACL_ACTION_DENY,
                                            self._utils._ACL_DEFAULT,
                                            protocol, address, mock.ANY))
 
-        self._utils._remove_virt_feature.assert_called_once_with(m_acl)
-        self._utils._bind_security_rule.assert_has_calls(calls)
+        self._utils._add_multiple_virt_features.assert_called_once_with(
+            m_port, [m_acl] * 12)
+        self._utils._create_security_acl.assert_has_calls(calls)
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
-                '._remove_virt_feature')
+                '._had_to_remove_existing_acls')
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._add_virt_feature')
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
@@ -380,6 +383,7 @@ class TestHyperVUtilsV2(base.BaseTestCase):
     def test_bind_security_rule(self, mock_create_acl, mock_add, mock_remove):
         (m_port, m_acl) = self._setup_security_rule_test()
         mock_create_acl.return_value = m_acl
+        mock_remove.return_value = True
 
         self._utils._bind_security_rule(
             m_port, self._FAKE_ACL_DIR, self._FAKE_ACL_TYPE,
@@ -389,13 +393,14 @@ class TestHyperVUtilsV2(base.BaseTestCase):
         self._utils._add_virt_feature.assert_called_once_with(m_port, m_acl)
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
-                '._remove_virt_feature')
+                '._remove_multiple_virt_features')
     def test_remove_security_rule(self, mock_remove_feature):
         mock_acl = self._setup_security_rule_test()[1]
         self._utils.remove_security_rule(
             self._FAKE_PORT_NAME, self._FAKE_ACL_DIR, self._FAKE_ACL_TYPE,
             self._FAKE_LOCAL_PORT, self._FAKE_PROTOCOL, self._FAKE_REMOTE_ADDR)
-        self._utils._remove_virt_feature.assert_called_once_with(mock_acl)
+        self._utils._remove_multiple_virt_features.assert_called_once_with(
+            [mock_acl])
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._remove_multiple_virt_features')
@@ -416,6 +421,28 @@ class TestHyperVUtilsV2(base.BaseTestCase):
             return_value=[mock_acl])
 
         return (mock_port, mock_acl)
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._remove_multiple_virt_features')
+    def test_had_to_remove_existing_acls_true(self, mock_remove):
+        mock_acl = mock.MagicMock()
+        result = self._utils._had_to_remove_existing_acls(
+            self._utils._ACL_ACTION_DENY, [mock_acl])
+
+        self.assertTrue(result)
+        self._utils._remove_multiple_virt_features.assert_called_with(
+            [mock_acl])
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._remove_multiple_virt_features')
+    def test_had_to_remove_existing_acls_false(self, mock_remove):
+        mock_acl = mock.MagicMock()
+        mock_acl.Action = self._utils._ACL_ACTION_DENY
+        result = self._utils._had_to_remove_existing_acls(
+            self._utils._ACL_ACTION_DENY, [mock_acl])
+
+        self.assertFalse(result)
+        self.assertFalse(self._utils._remove_multiple_virt_features.called)
 
     def test_filter_acls(self):
         mock_acl = mock.MagicMock()
@@ -502,3 +529,17 @@ class TestHyperVUtilsV2R2(base.BaseTestCase):
 
         self.assertEqual(self._utils._MAX_WEIGHT - 2,
                          self._utils._get_new_weight([mockacl1, mockacl2]))
+
+    def test_get_new_deny_weight_deny(self):
+        mockacl = mock.MagicMock()
+        mockacl.Weight = 0
+        mockacl.Action = self._utils._ACL_ACTION_DENY
+
+        self.assertEqual(1, self._utils._get_new_deny_weight([mockacl]))
+
+    def test_get_new_deny_weight_deny(self):
+        mockacl = mock.MagicMock()
+        mockacl.Weight = 0
+        mockacl.Action = self._utils._ACL_ACTION_ALLOW
+
+        self.assertEqual(0, self._utils._get_new_deny_weight([mockacl]))
