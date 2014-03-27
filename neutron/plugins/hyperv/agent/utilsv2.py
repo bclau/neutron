@@ -104,9 +104,12 @@ class HyperVUtilsV2(utils.HyperVUtils):
         self._check_job_status(ret_val, job_path)
 
     def _remove_virt_feature(self, feature_resource):
+        self._remove_multiple_virt_features([feature_resource])
+
+    def _remove_multiple_virt_features(self, feature_resources):
         vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
         (job_path, ret_val) = vs_man_svc.RemoveFeatureSettings(
-            FeatureSettings=[feature_resource.path_()])
+            FeatureSettings=[f.path_() for f in feature_resources])
         self._check_job_status(ret_val, job_path)
 
     def disconnect_switch_port(
@@ -292,6 +295,18 @@ class HyperVUtilsV2(utils.HyperVUtils):
 
         for acl in filtered_acls:
             self._remove_virt_feature(acl)
+
+    def remove_all_security_rules(self, switch_port_name):
+        port, found = self._get_switch_port_allocation(switch_port_name, False)
+        if not found:
+            # Port not found. It happens when the VM was already deleted.
+            return
+
+        acls = port.associators(wmi_result_class=self._PORT_EXT_ACL_SET_DATA)
+        filtered_acls = [a for a in acls if
+                         a.Action is not self._ACL_ACTION_METER]
+
+        self._remove_multiple_virt_features(filtered_acls)
 
     def create_default_reject_all_rules(self, switch_port_name):
         port, found = self._get_switch_port_allocation(switch_port_name, False)
