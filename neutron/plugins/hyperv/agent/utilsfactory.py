@@ -68,3 +68,9 @@ def get_hypervutils():
     LOG.debug(_("Loading class: %(module_name)s.%(class_name)s"),
               {'module_name': cls.__module__, 'class_name': cls.__name__})
     return cls()
+
+
+def get_sec_geoup_gen():
+    force_v1_flag = CONF.hyperv.force_hyperv_utils_v1
+    return (_check_min_windows_version(6, 3) or
+            (not force_v1_flag and _check_min_windows_version(6, 2)))

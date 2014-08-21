@@ -115,7 +115,7 @@ class HyperVSecurityCallbackMixin(n_rpc.RpcCallback,
 
 class HyperVPluginApi(agent_rpc.PluginApi,
                       sg_rpc.SecurityGroupServerRpcApiMixin):
-    pass
+    RPC_API_VERSION = '1.0'
 
 
 class HyperVNeutronAgent(n_rpc.RpcCallback):
@@ -363,6 +363,8 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
                 devices,
                 self.agent_id)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             LOG.debug("Unable to get ports details for "
                       "devices %(devices)s: %(e)s",
                       {'devices': devices, 'e': e})
@@ -376,6 +378,8 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
                 LOG.info(
                     _("Port %(device)s updated. Details: %(device_details)s"),
                     {'device': device, 'device_details': device_details})
+                print "Device:"
+                print device
                 self._treat_vif_port(
                     device_details['port_id'],
                     device_details['network_id'],
