@@ -402,6 +402,69 @@ class HyperVUtilsV2R2(HyperVUtilsV2):
     # 2 directions x 2 address types x 3 protocols = 12 ACLs
     _REJECT_ACLS_COUNT = 12
 
+    def create_security_rule(self, switch_port_name, direction, acl_type,
+                             local_port, protocol, remote_address):
+        if protocol == self._ACL_DEFAULT:
+            protocols = [self._TCP_PROTOCOL, self._UDP_PROTOCOL,
+                         self._ICMP_PROTOCOL]
+        else:
+            protocols = [protocol]
+
+        port, found = self._get_switch_port_allocation(switch_port_name, False)
+        if not found:
+            return
+
+        # Add the ACLs only if they don't already exist
+        for proto in protocols:
+            acls = port.associators(
+                wmi_result_class=self._PORT_EXT_ACL_SET_DATA)
+            weight = self._get_new_weight(acls)
+            self._bind_security_rule(
+                port, direction, acl_type, self._ACL_ACTION_ALLOW, local_port,
+                proto, remote_address, weight)
+
+        if protocol == self._ACL_DEFAULT:
+            direction = (self._ACL_DIR_IN if direction == self._ACL_DIR_OUT
+                         else self._ACL_DIR_OUT)
+            acls = port.associators(
+                wmi_result_class=self._PORT_EXT_ACL_SET_DATA)
+            weight = self._get_new_weight(acls)
+            self._bind_security_rule(
+                port, direction, acl_type, self._ACL_ACTION_ALLOW, local_port,
+                self._ICMP_PROTOCOL, remote_address, weight)
+
+    def _bind_security_rule(self, port, direction, acl_type, action,
+                            local_port, protocol, remote_address, weight):
+        acls = port.associators(wmi_result_class=self._PORT_EXT_ACL_SET_DATA)
+
+        acl = self._create_security_acl(
+            direction, acl_type, action, local_port, protocol, remote_address,
+            weight)
+
+        self._add_virt_feature(port, acl)
+
+    def remove_security_rule(self, switch_port_name, direction, acl_type,
+                             local_port, protocol, remote_address):
+        if protocol == self._ACL_DEFAULT:
+            protocols = [self._TCP_PROTOCOL, self._UDP_PROTOCOL,
+                         self._ICMP_PROTOCOL]
+        else:
+            protocols = [protocol]
+
+        port, found = self._get_switch_port_allocation(switch_port_name, False)
+        if not found:
+            # Port not found. It happens when the VM was already deleted.
+            return
+
+        acls = port.associators(wmi_result_class=self._PORT_EXT_ACL_SET_DATA)
+        for proto in protocols:
+            filtered_acls = self._filter_security_acls(
+                acls, self._ACL_ACTION_ALLOW, direction, acl_type, local_port,
+                protocol, remote_address)
+
+            if filtered_acls:
+                self._remove_virt_feature(filtered_acls[0])
+
     def _create_security_acl(self, direction, acl_type, action, local_port,
                              protocol, remote_addr, weight):
         acl = self._get_default_setting_data(self._PORT_EXT_ACL_SET_DATA)
@@ -411,7 +474,9 @@ class HyperVUtilsV2R2(HyperVUtilsV2):
                 Protocol=protocol,
                 RemoteIPAddress=remote_addr,
                 IdleSessionTimeout=0,
-                Weight=weight)
+                Weight=weight,
+                Stateful=(protocol is not self._ICMP_PROTOCOL and
+                          action is not self._ACL_ACTION_DENY))
         return acl
 
     def _filter_security_acls(self, acls, action, direction, acl_type,

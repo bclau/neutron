@@ -66,6 +66,7 @@ class HyperVSecurityGroupsDriver(firewall.FirewallDriver):
     def _remove_port_rules(self, port_id, rules):
         for rule in rules:
             param_map = self._create_param_map(rule)
+            print param_map
             try:
                 self._utils.remove_security_rule(port_id, **param_map)
             except Exception as ex:
