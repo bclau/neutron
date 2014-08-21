@@ -115,7 +115,7 @@ class HyperVSecurityCallbackMixin(n_rpc.RpcCallback,
 
 class HyperVPluginApi(agent_rpc.PluginApi,
                       sg_rpc.SecurityGroupServerRpcApiMixin):
-    pass
+    RPC_API_VERSION = '1.0'
 
 
 class HyperVNeutronAgent(n_rpc.RpcCallback):

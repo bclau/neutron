@@ -21,7 +21,8 @@ Unit tests for the Hyper-V Security Groups Driver.
 import mock
 from oslo.config import cfg
 
-from neutron.plugins.hyperv.agent import security_groups_driver as sg_driver
+from neutron.plugins.hyperv.agent import security_groups_driver as sg_driver0
+from neutron.plugins.hyperv.agent import security_groups_driver2 as sg_driver
 from neutron.plugins.hyperv.agent import utilsfactory
 from neutron.tests import base
 
@@ -48,7 +49,7 @@ class TestHyperVSecurityGroupsDriver(base.BaseTestCase):
         self._mock_windows_version = mock.patch.object(utilsfactory,
                                                        'get_hypervutils')
         self._mock_windows_version.start()
-        self._driver = sg_driver.HyperVSecurityGroupsDriver()
+        self._driver = sg_driver0.HyperVSecurityGroupsDriver()
         self._driver._utils = mock.MagicMock()
 
     @mock.patch('neutron.plugins.hyperv.agent.security_groups_driver'
@@ -187,3 +188,112 @@ class TestHyperVSecurityGroupsDriver(base.BaseTestCase):
             'port_range_min': self._FAKE_PORT_MIN,
             'port_range_max': self._FAKE_PORT_MAX
         }
+
+
+class SecurityGroupRulesTestCase(base.BaseTestCase):
+    _FAKE_DEVICE = 'fake_device'
+    _FAKE_ID = 'fake_id'
+    _FAKE_DIRECTION = 'ingress'
+    _FAKE_ETHERTYPE = 'IPv4'
+    _FAKE_ETHERTYPE_IPV6 = 'IPv6'
+    _FAKE_PROTOCOL = 'tcp'
+    _FAKE_ACTION = sg_driver._ACL_PROP_MAP['action']['allow']
+    _FAKE_DEST_IP_PREFIX = 'fake_dest_ip_prefix'
+    _FAKE_SOURCE_IP_PREFIX = 'fake_source_ip_prefix'
+    _FAKE_PARAM_NAME = 'fake_param_name'
+    _FAKE_PARAM_VALUE = 'fake_param_value'
+
+    _FAKE_PORT_MIN = 9001
+    _FAKE_PORT_MAX = 9011
+
+    def setUp(self):
+        super(SecurityGroupRulesTestCase, self).setUp()
+
+        self.sg_gen = sg_driver.SecurityGroupRuleGenerator()
+
+    def test_create_security_group_rule(self):
+        expected = [self._create_sg_rule()]
+        rule = self._create_security_rule()
+
+        actual = self.sg_gen.create_security_group_rule(rule)
+        self.assertEqual(expected, actual)
+
+    def test_create_security_group_rules(self):
+        expected = [self._create_sg_rule()] * 2
+        rules = [self._create_security_rule()] * 2
+
+        actual = self.sg_gen.create_security_group_rules(rules)
+        self.assertEqual(expected, actual)
+
+    def test_create_security_group_rule_any(self):
+        sg_rule1 = self._create_sg_rule(self._acl('protocol', 'tcp'))
+        sg_rule2 = self._create_sg_rule(self._acl('protocol', 'udp'))
+        sg_rule3 = self._create_sg_rule(self._acl('protocol', 'icmp'))
+
+        rule = self._create_security_rule()
+        rule['protocol'] = sg_driver._ACL_PROP_MAP["default"]
+
+        actual = self.sg_gen.create_security_group_rule(rule)
+        self.assertEqual(sorted([sg_rule1, sg_rule2, sg_rule3]),
+                         sorted(actual))
+
+    def test_sg_rule_to_dict(self):
+        expected = {'Direction': self._acl('direction', self._FAKE_DIRECTION),
+                    'Action': self._FAKE_ACTION,
+                    'Protocol': self._FAKE_PROTOCOL,
+                    'LocalPort': '%s-%s' % (self._FAKE_PORT_MIN,
+                                            self._FAKE_PORT_MAX),
+                    'RemoteIPAddress': self._FAKE_DEST_IP_PREFIX,
+                    'Stateful': True,
+                    'IdleSessionTimeout': 0
+        }
+
+        sg_rule = self._create_sg_rule()
+        self.assertEqual(expected, sg_rule.to_dict())
+
+    def test_stateful_icmp(self):
+        sg_rule = self._create_sg_rule(self._acl('protocol', 'icmp'))
+        self.assertFalse(sg_rule.Stateful)
+
+    def test_stateful_deny(self):
+        sg_rule = self._create_sg_rule(action=self._acl('action', 'deny'))
+        self.assertFalse(sg_rule.Stateful)
+
+    def test_stateful_true(self):
+        sg_rule = self._create_sg_rule()
+        self.assertTrue(sg_rule.Stateful)
+
+    def test_rule_uniqueness(self):
+        sg_rule = self._create_sg_rule()
+        sg_rule2 = self._create_sg_rule(self._acl('protocol', 'icmp'))
+
+        self.assertEqual([sg_rule], list(set([sg_rule] * 2)))
+        self.assertEqual(sorted([sg_rule, sg_rule2]),
+                         sorted(list(set([sg_rule, sg_rule2]))))
+
+    def _create_security_rule(self):
+        return {
+            'direction': self._FAKE_DIRECTION,
+            'ethertype': self._FAKE_ETHERTYPE,
+            'protocol': self._FAKE_PROTOCOL,
+            'dest_ip_prefix': self._FAKE_DEST_IP_PREFIX,
+            'source_ip_prefix': self._FAKE_DEST_IP_PREFIX,
+            'port_range_min': self._FAKE_PORT_MIN,
+            'port_range_max': self._FAKE_PORT_MAX
+        }
+
+    def _create_sg_rule(self, protocol=None, action=None):
+        protocol = protocol or self._FAKE_PROTOCOL
+        action = action or self._FAKE_ACTION
+        return sg_driver.SecurityGroupRule(
+            self._acl('direction', self._FAKE_DIRECTION),
+            '%s-%s' % (self._FAKE_PORT_MIN, self._FAKE_PORT_MAX),
+            protocol,
+            self._FAKE_DEST_IP_PREFIX,
+            action)
+
+    @classmethod
+    def _acl(self, key1, key2):
+        return sg_driver._ACL_PROP_MAP[key1][key2]
+
+
