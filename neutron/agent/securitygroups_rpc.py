@@ -59,6 +59,7 @@ def is_firewall_enabled():
     if not _is_valid_driver_combination():
         LOG.warn(_("Driver configuration doesn't match with "
                    "enable_security_group"))
+        return False
 
     return cfg.CONF.SECURITYGROUP.enable_security_group
 

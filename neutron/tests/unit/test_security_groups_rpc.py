@@ -2446,3 +2446,21 @@ class TestSecurityGroupExtensionControl(base.BaseTestCase):
             'firewall_driver', None,
             group='SECURITYGROUP')
         self.assertTrue(sg_rpc._is_valid_driver_combination())
+
+    def test_is_firewall_enabled_valid_driver(self):
+        cfg.CONG.set_override(
+            'enable_security_group', True,
+            group='SECURITYGROUP')
+        cfg.CONG.set_override(
+            'firewall_driver', None,
+            group='SECURITYGROUP')
+        self.assertFalse(sg_rpc.is_firewall_enabled())
+
+    def test_is_firewall_enabled_invalid_driver(self):
+        cfg.CONG.set_override(
+            'enable_security_group', True,
+            group='SECURITYGROUP')
+        cfg.CONG.set_override(
+            'firewall_driver', 'neutron.agent.firewall.NoopFirewallDriver',
+            group='SECURITYGROUP')
+        self.assertTrue(sg_rpc.is_firewall_enabled())
