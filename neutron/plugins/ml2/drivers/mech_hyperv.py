@@ -15,6 +15,8 @@
 
 import re
 
+from neutron.hyperv.ml2 import mech_hyperv
+
 from neutron.common import constants
 from neutron.extensions import portbindings
 from neutron.openstack.common import log
@@ -24,7 +26,8 @@ from neutron.plugins.ml2.drivers import mech_agent
 LOG = log.getLogger(__name__)
 
 
-class HypervMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
+class HypervMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase,
+                            mech_hyperv.HypervMechanismDriver):
     """Attach to networks using hyperv L2 agent.
 
     The HypervMechanismDriver integrates the ml2 plugin with the
@@ -38,13 +41,3 @@ class HypervMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
             constants.AGENT_TYPE_HYPERV,
             portbindings.VIF_TYPE_HYPERV,
             {portbindings.CAP_PORT_FILTER: False})
-
-    def get_allowed_network_types(self, agent=None):
-        return [p_constants.TYPE_LOCAL, p_constants.TYPE_FLAT,
-                p_constants.TYPE_VLAN]
-
-    def get_mappings(self, agent):
-        return agent['configurations'].get('vswitch_mappings', {})
-
-    def physnet_in_mappings(self, physnet, mappings):
-        return any(re.match(pattern, physnet) for pattern in mappings)

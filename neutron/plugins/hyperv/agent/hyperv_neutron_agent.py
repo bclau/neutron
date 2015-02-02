@@ -15,13 +15,12 @@
 #    under the License.
 
 import platform
-import re
 import sys
-import time
 
 import eventlet
 eventlet.monkey_patch()
 
+from hyperv.neutron import hyperv_neutron_agent
 from oslo.config import cfg
 from oslo import messaging
 
@@ -35,10 +34,6 @@ from neutron import context
 from neutron.i18n import _LE, _LI
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.plugins.common import constants as p_const
-from neutron.plugins.hyperv.agent import utils
-from neutron.plugins.hyperv.agent import utilsfactory
-from neutron.plugins.hyperv.common import constants
 
 LOG = logging.getLogger(__name__)
 
@@ -71,7 +66,6 @@ agent_opts = [
                       'period for at most metrics_max_retries or until it '
                       'succeedes.'))
 ]
-
 
 CONF = cfg.CONF
 CONF.register_opts(agent_opts, "AGENT")
@@ -107,17 +101,12 @@ class HyperVSecurityCallbackMixin(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         self.sg_agent = sg_agent
 
 
-class HyperVNeutronAgent(object):
+class HyperVNeutronAgent(hyperv_neutron_agent.HyperVNeutronAgentMixin):
     # Set RPC API version to 1.1 by default.
     target = messaging.Target(version='1.1')
 
     def __init__(self):
-        super(HyperVNeutronAgent, self).__init__()
-        self._utils = utilsfactory.get_hypervutils()
-        self._polling_interval = CONF.AGENT.polling_interval
-        self._load_physical_network_mappings()
-        self._network_vswitch_map = {}
-        self._port_metric_retries = {}
+        super(HyperVNeutronAgent, self).__init__(conf=CONF)
         self._set_agent_state()
         self._setup_rpc()
 
@@ -155,7 +144,7 @@ class HyperVNeutronAgent(object):
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.NETWORK, topics.DELETE],
                      [topics.PORT, topics.DELETE],
-                     [constants.TUNNEL, topics.UPDATE]]
+                     [topics.TUNNEL, topics.UPDATE]]
         self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
@@ -167,289 +156,6 @@ class HyperVNeutronAgent(object):
             heartbeat = loopingcall.FixedIntervalLoopingCall(
                 self._report_state)
             heartbeat.start(interval=report_interval)
-
-    def _load_physical_network_mappings(self):
-        self._physical_network_mappings = {}
-        for mapping in CONF.AGENT.physical_network_vswitch_mappings:
-            parts = mapping.split(':')
-            if len(parts) != 2:
-                LOG.debug('Invalid physical network mapping: %s', mapping)
-            else:
-                pattern = re.escape(parts[0].strip()).replace('\\*', '.*')
-                vswitch = parts[1].strip()
-                self._physical_network_mappings[pattern] = vswitch
-
-    def _get_vswitch_for_physical_network(self, phys_network_name):
-        for pattern in self._physical_network_mappings:
-            if phys_network_name is None:
-                phys_network_name = ''
-            if re.match(pattern, phys_network_name):
-                return self._physical_network_mappings[pattern]
-        # Not found in the mappings, the vswitch has the same name
-        return phys_network_name
-
-    def _get_network_vswitch_map_by_port_id(self, port_id):
-        for network_id, map in self._network_vswitch_map.iteritems():
-            if port_id in map['ports']:
-                return (network_id, map)
-
-    def network_delete(self, context, network_id=None):
-        LOG.debug("network_delete received. "
-                  "Deleting network %s", network_id)
-        # The network may not be defined on this agent
-        if network_id in self._network_vswitch_map:
-            self._reclaim_local_network(network_id)
-        else:
-            LOG.debug("Network %s not defined on agent.", network_id)
-
-    def port_delete(self, context, port_id=None):
-        LOG.debug("port_delete received")
-        self._port_unbound(port_id)
-
-    def port_update(self, context, port=None, network_type=None,
-                    segmentation_id=None, physical_network=None):
-        LOG.debug("port_update received")
-        if CONF.SECURITYGROUP.enable_security_group:
-            if 'security_groups' in port:
-                self.sec_groups_agent.refresh_firewall()
-
-        self._treat_vif_port(
-            port['id'], port['network_id'],
-            network_type, physical_network,
-            segmentation_id, port['admin_state_up'])
-
-    def _get_vswitch_name(self, network_type, physical_network):
-        if network_type != p_const.TYPE_LOCAL:
-            vswitch_name = self._get_vswitch_for_physical_network(
-                physical_network)
-        else:
-            vswitch_name = CONF.AGENT.local_network_vswitch
-        return vswitch_name
-
-    def _provision_network(self, port_id,
-                           net_uuid, network_type,
-                           physical_network,
-                           segmentation_id):
-        LOG.info(_LI("Provisioning network %s"), net_uuid)
-
-        vswitch_name = self._get_vswitch_name(network_type, physical_network)
-
-        if network_type in [p_const.TYPE_VLAN, p_const.TYPE_FLAT]:
-            #Nothing to do
-            pass
-        elif network_type == p_const.TYPE_LOCAL:
-            #TODO(alexpilotti): Check that the switch type is private
-            #or create it if not existing
-            pass
-        else:
-            raise utils.HyperVException(
-                msg=(_("Cannot provision unknown network type %(network_type)s"
-                       " for network %(net_uuid)s") %
-                     dict(network_type=network_type, net_uuid=net_uuid)))
-
-        map = {
-            'network_type': network_type,
-            'vswitch_name': vswitch_name,
-            'ports': [],
-            'vlan_id': segmentation_id}
-        self._network_vswitch_map[net_uuid] = map
-
-    def _reclaim_local_network(self, net_uuid):
-        LOG.info(_LI("Reclaiming local network %s"), net_uuid)
-        del self._network_vswitch_map[net_uuid]
-
-    def _port_bound(self, port_id,
-                    net_uuid,
-                    network_type,
-                    physical_network,
-                    segmentation_id):
-        LOG.debug("Binding port %s", port_id)
-
-        if net_uuid not in self._network_vswitch_map:
-            self._provision_network(
-                port_id, net_uuid, network_type,
-                physical_network, segmentation_id)
-
-        map = self._network_vswitch_map[net_uuid]
-        map['ports'].append(port_id)
-
-        self._utils.connect_vnic_to_vswitch(map['vswitch_name'], port_id)
-
-        if network_type == p_const.TYPE_VLAN:
-            LOG.info(_LI('Binding VLAN ID %(segmentation_id)s '
-                         'to switch port %(port_id)s'),
-                     dict(segmentation_id=segmentation_id, port_id=port_id))
-            self._utils.set_vswitch_port_vlan_id(
-                segmentation_id,
-                port_id)
-        elif network_type == p_const.TYPE_FLAT:
-            #Nothing to do
-            pass
-        elif network_type == p_const.TYPE_LOCAL:
-            #Nothing to do
-            pass
-        else:
-            LOG.error(_LE('Unsupported network type %s'), network_type)
-
-        if CONF.AGENT.enable_metrics_collection:
-            self._utils.enable_port_metrics_collection(port_id)
-            self._port_metric_retries[port_id] = CONF.AGENT.metrics_max_retries
-
-    def _port_unbound(self, port_id):
-        (net_uuid, map) = self._get_network_vswitch_map_by_port_id(port_id)
-        if net_uuid not in self._network_vswitch_map:
-            LOG.info(_LI('Network %s is not avalailable on this agent'),
-                     net_uuid)
-            return
-
-        LOG.debug("Unbinding port %s", port_id)
-        self._utils.disconnect_switch_port(map['vswitch_name'], port_id, True)
-
-        if not map['ports']:
-            self._reclaim_local_network(net_uuid)
-
-    def _port_enable_control_metrics(self):
-        if not CONF.AGENT.enable_metrics_collection:
-            return
-
-        for port_id in self._port_metric_retries.keys():
-            if self._utils.can_enable_control_metrics(port_id):
-                self._utils.enable_control_metrics(port_id)
-                LOG.info(_LI('Port metrics enabled for port: %s'), port_id)
-                del self._port_metric_retries[port_id]
-            elif self._port_metric_retries[port_id] < 1:
-                self._utils.enable_control_metrics(port_id)
-                LOG.error(_LE('Port metrics raw enabling for port: %s'),
-                          port_id)
-                del self._port_metric_retries[port_id]
-            else:
-                self._port_metric_retries[port_id] -= 1
-
-    def _update_ports(self, registered_ports):
-        ports = self._utils.get_vnic_ids()
-        if ports == registered_ports:
-            return
-        added = ports - registered_ports
-        removed = registered_ports - ports
-        return {'current': ports,
-                'added': added,
-                'removed': removed}
-
-    def _treat_vif_port(self, port_id, network_id, network_type,
-                        physical_network, segmentation_id,
-                        admin_state_up):
-        if self._utils.vnic_port_exists(port_id):
-            if admin_state_up:
-                self._port_bound(port_id, network_id, network_type,
-                                 physical_network, segmentation_id)
-            else:
-                self._port_unbound(port_id)
-        else:
-            LOG.debug("No port %s defined on agent.", port_id)
-
-    def _treat_devices_added(self, devices):
-        try:
-            devices_details_list = self.plugin_rpc.get_devices_details_list(
-                self.context,
-                devices,
-                self.agent_id)
-        except Exception as e:
-            LOG.debug("Unable to get ports details for "
-                      "devices %(devices)s: %(e)s",
-                      {'devices': devices, 'e': e})
-            # resync is needed
-            return True
-
-        for device_details in devices_details_list:
-            device = device_details['device']
-            LOG.info(_LI("Adding port %s"), device)
-            if 'port_id' in device_details:
-                LOG.info(_LI("Port %(device)s updated. Details: "
-                             "%(device_details)s"),
-                         {'device': device, 'device_details': device_details})
-                self._treat_vif_port(
-                    device_details['port_id'],
-                    device_details['network_id'],
-                    device_details['network_type'],
-                    device_details['physical_network'],
-                    device_details['segmentation_id'],
-                    device_details['admin_state_up'])
-
-                # check if security groups is enabled.
-                # if not, teardown the security group rules
-                if CONF.SECURITYGROUP.enable_security_group:
-                    self.sec_groups_agent.prepare_devices_filter([device])
-                else:
-                    self._utils.remove_all_security_rules(
-                        device_details['port_id'])
-                self.plugin_rpc.update_device_up(self.context,
-                                                 device,
-                                                 self.agent_id,
-                                                 cfg.CONF.host)
-        return False
-
-    def _treat_devices_removed(self, devices):
-        resync = False
-        for device in devices:
-            LOG.info(_LI("Removing port %s"), device)
-            try:
-                self.plugin_rpc.update_device_down(self.context,
-                                                   device,
-                                                   self.agent_id,
-                                                   cfg.CONF.host)
-            except Exception as e:
-                LOG.debug("Removing port failed for device %(device)s: %(e)s",
-                          dict(device=device, e=e))
-                resync = True
-                continue
-            self._port_unbound(device)
-        return resync
-
-    def _process_network_ports(self, port_info):
-        resync_a = False
-        resync_b = False
-        if 'added' in port_info:
-            resync_a = self._treat_devices_added(port_info['added'])
-        if 'removed' in port_info:
-            resync_b = self._treat_devices_removed(port_info['removed'])
-        # If one of the above operations fails => resync with plugin
-        return (resync_a | resync_b)
-
-    def daemon_loop(self):
-        sync = True
-        ports = set()
-
-        while True:
-            try:
-                start = time.time()
-                if sync:
-                    LOG.info(_LI("Agent out of sync with plugin!"))
-                    ports.clear()
-                    sync = False
-
-                port_info = self._update_ports(ports)
-
-                # notify plugin about port deltas
-                if port_info:
-                    LOG.debug("Agent loop has new devices!")
-                    # If treat devices fails - must resync with plugin
-                    sync = self._process_network_ports(port_info)
-                    ports = port_info['current']
-
-                self._port_enable_control_metrics()
-            except Exception:
-                LOG.exception(_LE("Error in agent event loop"))
-                sync = True
-
-            # sleep till end of polling interval
-            elapsed = (time.time() - start)
-            if (elapsed < self._polling_interval):
-                time.sleep(self._polling_interval - elapsed)
-            else:
-                LOG.debug("Loop iteration exceeded interval "
-                          "(%(polling_interval)s vs. %(elapsed)s)",
-                          {'polling_interval': self._polling_interval,
-                           'elapsed': elapsed})
 
 
 def main():

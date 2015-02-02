@@ -19,6 +19,8 @@ PORT = 'port'
 SECURITY_GROUP = 'security_group'
 L2POPULATION = 'l2population'
 DVR = 'dvr'
+# Topic for tunnel notifications between the plugin and agent
+TUNNEL = 'tunnel'
 
 CREATE = 'create'
 DELETE = 'delete'
