@@ -994,32 +994,6 @@ class CiscoNexusPortBinding(BASEV2):
     instance_id = sa.Column(sa.String(255), nullable=False)
 
 
-#neutron/plugins/hyperv/model.py
-#class was renamed from VlanAllocation to HyperVVlanAllocation
-class HyperVVlanAllocation(BASEV2):
-    __tablename__ = 'hyperv_vlan_allocations'
-
-    physical_network = sa.Column(sa.String(64),
-                                 nullable=False,
-                                 primary_key=True)
-    vlan_id = sa.Column(sa.Integer, nullable=False, primary_key=True,
-                        autoincrement=False)
-    allocated = sa.Column(sa.Boolean, nullable=False)
-
-
-#neutron/plugins/hyperv/model.py
-#class was renamed from NetworkBinding to HyperVNetworkBinding
-class HyperVNetworkBinding(BASEV2):
-    __tablename__ = 'hyperv_network_bindings'
-
-    network_id = sa.Column(sa.String(36),
-                           sa.ForeignKey('networks.id', ondelete="CASCADE"),
-                           primary_key=True)
-    network_type = sa.Column(sa.String(32), nullable=False)
-    physical_network = sa.Column(sa.String(64))
-    segmentation_id = sa.Column(sa.Integer)
-
-
 #neutron/plugins/linuxbridge/db/l2network_models_v2.py
 class NetworkState(BASEV2):
     __tablename__ = 'network_states'
